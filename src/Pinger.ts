@@ -1,7 +1,17 @@
+/*
+ * Copyright (c) 2025 dodson Software ( dodson labs )
+ * Author: Randy Dodson <dodsonsoftware@gmail.com>
+ * Licensed under the MIT License with Patent Grant and NOTICE preservation.
+ * See the LICENSE file for the full terms.
+ */
+
 import { IPinger, IDevice, ILogger, IConfig } from "./interfaces";
 import { sleep, sleep_from_start } from "./systemFunctions";
 import { register, Gauge } from "prom-client";
-import express from "express";
+import express, { NextFunction } from "express";
+import bodyParser from "body-parser";
+import { setupSwagger } from "./swagger";
+import { createRoutes } from "./routes/generalRoutes";
 const ping = require("net-ping");
 
 export class Pinger implements IPinger {
@@ -9,10 +19,11 @@ export class Pinger implements IPinger {
     // ******** private properties
 
     private readonly originator: string = "Pinger";
+    private readonly config_str: string;
     private readonly configuration: IConfig;
     private readonly logger: ILogger;
     // ----
-    private readonly net_pinger: any;
+    private readonly ip_pinger: any;
     private readonly express: any;
     // ----
     private prometheus_Pinger_Gauge: Gauge;
@@ -21,10 +32,13 @@ export class Pinger implements IPinger {
     // ********
     // ******** ctor
 
-    constructor(config: IConfig, logger: ILogger) {
+    constructor(config: IConfig, config_str: string, logger: ILogger) {
         // save parameters
         this.configuration = config;
+        this.config_str = config_str;
         this.logger = logger;
+
+        // ******** CREATE PROMETHEUS GAUGES
 
         // create a gauge for device
         this.prometheus_Pinger_Gauge = new Gauge({
@@ -40,8 +54,9 @@ export class Pinger implements IPinger {
             labelNames: ["ip_address", "device_name", "device_type", "category"],
         });
 
-        // --------------------------------
-        // setup express
+        // ******** SETUP EXPRESS
+
+        // init
         this.express = express();
 
         // create endpoint for Prometheus to scrape metrics
@@ -57,8 +72,27 @@ export class Pinger implements IPinger {
             this.logger.write_info(this.originator + ".ctor", `Prometheus metrics can be found at http://localhost:${this.configuration.prometheus_port}/metrics`);
         });
 
-        // --------------------------------
-        // init the net pinger
+        // ******** SETUP MIDDLEWARE
+
+        // add CORS
+        const cors = require("cors");
+        this.express.use(cors());
+        this.express.use(bodyParser.json());
+
+        // Simple request logger
+        this.express.use((req: Request, res: Response, next: NextFunction) => {
+            console.log(`${req.method} ${req.url}`);
+            next();
+        });
+
+        // ******** SETUP SWAGGER
+
+        createRoutes(this.express, this.config_str);
+        setupSwagger(this.express);
+
+        // ******** CREATE THE PINGER
+
+        // init the pinger
         const ping_options = {
             networkProtocol: ping.NetworkProtocol.IPv4,
             packetSize: 16,
@@ -67,18 +101,19 @@ export class Pinger implements IPinger {
             timeout: 2000,
             ttl: 128,
         };
-        this.net_pinger = ping.createSession(ping_options);
+        this.ip_pinger = ping.createSession(ping_options);
 
-        // setup net_pinger functions
+        // setup functions
         this.setup_net_pinger_functions(logger);
 
-        // log-it
+        // ******** LOG-IT
+
         const msg = `Pinger class initialized. ${this.configuration.devices.length} Devices.`;
         logger.write_info(this.originator + ".ctor", msg);
         logger.write_info(this.originator + ".ctor", `Ping Interval Cycle: ${this.configuration.interval_secs} seconds.`);
     }
 
-    // ********
+    // ****************************************************************
     // ******** IPinger properties
 
     public async run(): Promise<void> {
@@ -155,21 +190,21 @@ export class Pinger implements IPinger {
         }
     }
 
-    // ********
+    // ****************************************************************
     // ******** private functions
 
     private setup_net_pinger_functions(logger: ILogger): void {
         // init
-        const net_pinger = this.net_pinger;
+        const net_pinger = this.ip_pinger;
         const originator = this.originator;
 
         // close event
-        this.net_pinger.on("close", function () {
+        this.ip_pinger.on("close", function () {
             logger.write_debug(`${originator}.setup_net_pinger_functions`, `net_pinger closed.`);
         });
 
         // log error
-        this.net_pinger.on("error", function (error: any) {
+        this.ip_pinger.on("error", function (error: any) {
             // log-it
             logger.write_error(`${originator}.setup_net_pinger_functions`, error);
 
@@ -199,7 +234,7 @@ export class Pinger implements IPinger {
             logger.write_debug(`${originator}.ping_device`, `Pinging Device [${device.source}, ${device.ip_address}, ${device.device_type}]...`);
 
             // ping-it
-            this.net_pinger.pingHost(device.ip_address, (error: Error | null, target: string, sent: Date, received: Date) => {
+            this.ip_pinger.pingHost(device.ip_address, (error: Error | null, target: string, sent: Date, received: Date) => {
                 // calculate ping round-trip
                 const round_trip_ms = received.getTime() - sent.getTime();
 

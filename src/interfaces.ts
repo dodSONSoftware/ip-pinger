@@ -1,3 +1,10 @@
+/*
+ * Copyright (c) 2025 dodson Software ( dodson labs )
+ * Author: Randy Dodson <dodsonsoftware@gmail.com>
+ * Licensed under the MIT License with Patent Grant and NOTICE preservation.
+ * See the LICENSE file for the full terms.
+ */
+
 // **** Logger
 
 export const enum LogLevel {
@@ -24,6 +31,7 @@ export interface IPinger {
 }
 
 export interface IConfig {
+    docker_container_name: string;
     log_level: string;
     always_log_errors: boolean;
     prometheus_port: number;

@@ -11,6 +11,7 @@ docker run -d \
            --privileged \
            --name ip-pinger-2 \
            -p 3300:3300 \
+           -v /var/run/docker.sock:/var/run/docker.sock \
            -v /mnt/ip-pinger-data/config.json:/app/dist/config.json \
            ip-pinger-2:1.0
 

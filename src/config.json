@@ -1,4 +1,5 @@
 {
+  "docker-container-name": "ip-pinger-2",
   "log-level": "info",
   "always-log-errors": true,
   "prometheus-port": 3300,
@@ -46,17 +47,17 @@
     },
     {
       "source": "Winter Room",
-      "ip-address": "192.168.7.137",
+      "ip-address": "192.168.7.121",
       "device-type": "sensor"
     },
     {
       "source": "Water-1",
-      "ip-address": "192.168.7.106",
+      "ip-address": "192.168.7.115",
       "device-type": "sensor"
     },
     {
       "source": "Air-Light-1",
-      "ip-address": "192.168.7.121",
+      "ip-address": "192.168.7.116",
       "device-type": "sensor"
     },
     {
