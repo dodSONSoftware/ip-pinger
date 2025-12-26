@@ -28,7 +28,7 @@ export function ensureError(value: unknown): Error {
     let result = "Unknown Error: error value cannot be converted to a json string.";
     try {
         result = JSON.stringify(value);
-    } catch {}
+    } catch { }
 
     // return new error
     return new Error(result);
@@ -117,7 +117,7 @@ export function convert_from_log_level_enum_to_string(log_level: LogLevel): stri
 
 export function sleep(delayMS: number): Promise<void> {
     if (delayMS === 0) {
-        return new Promise(() => {});
+        return new Promise(() => { });
     }
     return new Promise((resolve) => setTimeout(resolve, delayMS));
 }
@@ -204,12 +204,10 @@ export async function executeCommandLine_Command(cmd: string): Promise<string> {
     return new Promise<string>((resolve, reject) => {
         childProc.exec(cmd, (error, stdout, stderr) => {
             if (error) {
-                const msg = `Error executing script: ${error.message}`;
-                reject(new Error(msg));
+                reject(new Error(`Error executing script: ${error.message}`));
             }
             if (stderr) {
-                const msg = `Script error output: ${stderr}`;
-                reject(new Error(msg));
+                reject(new Error(`Script error output: ${stderr}`));
             }
             resolve(stdout); // Resolve with the standard output
         });

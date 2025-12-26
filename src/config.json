@@ -1,78 +1,33 @@
 {
   "docker-container-name": "ip-pinger-2",
-  "log-level": "info",
+  "log-level": "debug",
   "always-log-errors": true,
   "prometheus-port": 3300,
   "interval-secs": 30,
   "devices": [
     {
-      "source": "S1: Inside",
-      "ip-address": "192.168.7.59",
+      "source": "Indoor",
+      "ip-address": "192.168.1.22",
       "device-type": "sensor"
     },
     {
-      "source": "S2: Outside (Pool Water)",
-      "ip-address": "192.168.7.64",
+      "source": "Outdoor",
+      "ip-address": "192.168.1.151",
       "device-type": "sensor"
     },
     {
-      "source": "S3: Weather Station",
-      "ip-address": "192.168.7.72",
-      "device-type": "sensor"
-    },
-    {
-      "source": "S4: Rain Gauge",
-      "ip-address": "192.168.7.234",
-      "device-type": "sensor"
-    },
-    {
-      "source": "S5: Outside (Air)",
-      "ip-address": "192.168.7.106",
-      "device-type": "sensor"
-    },
-    {
-      "source": "S6: Attic",
-      "ip-address": "192.168.7.70",
-      "device-type": "sensor"
-    },
-    {
-      "source": "S7: Ren Room",
-      "ip-address": "192.168.7.82",
-      "device-type": "sensor"
-    },
-    {
-      "source": "Garage",
-      "ip-address": "192.168.7.113",
+      "source": "Pool",
+      "ip-address": "192.168.1.107",
       "device-type": "sensor"
     },
     {
       "source": "Winter Room",
-      "ip-address": "192.168.7.121",
+      "ip-address": "192.168.1.241",
       "device-type": "sensor"
     },
     {
-      "source": "Water-1",
-      "ip-address": "192.168.7.115",
-      "device-type": "sensor"
-    },
-    {
-      "source": "Air-Light-1",
-      "ip-address": "192.168.7.116",
-      "device-type": "sensor"
-    },
-    {
-      "source": "Air-Light-2",
-      "ip-address": "192.168.7.113",
-      "device-type": "sensor"
-    },
-    {
-      "source": "Air-2",
-      "ip-address": "192.168.7.127",
-      "device-type": "sensor"
-    },
-    {
-      "source": "Air-1",
-      "ip-address": "192.168.7.108",
+      "source": "Rens Room",
+      "ip-address": "192.168.1.115",
       "device-type": "sensor"
     }
   ]

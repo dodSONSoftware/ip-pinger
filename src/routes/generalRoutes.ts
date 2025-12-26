@@ -133,8 +133,7 @@ export function createRoutes(app: express.Application, config: string) {
      */
     app.route("/write-config").post((req: express.Request, res: express.Response) => {
         try {
-            const data = req.body;
-            const json_str = JSON.stringify(data);
+            const json_str = JSON.stringify(req.body);
             const validData = validateConfig(json_str);
             if (validData.ok) {
                 res.status(200).json({ message: "Valid configuration data received" });

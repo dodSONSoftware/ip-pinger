@@ -26,7 +26,7 @@ export class Pinger implements IPinger {
     private readonly ip_pinger: any;
     private readonly express: any;
     // ----
-    private prometheus_Pinger_Gauge: Gauge;
+    private prometheus_Pinger_Up_Gauge: Gauge;
     private prometheus_Pinger_Roundtrip_Gauge: Gauge;
 
     // ********
@@ -41,7 +41,7 @@ export class Pinger implements IPinger {
         // ******** CREATE PROMETHEUS GAUGES
 
         // create a gauge for device
-        this.prometheus_Pinger_Gauge = new Gauge({
+        this.prometheus_Pinger_Up_Gauge = new Gauge({
             name: `pinged`,
             help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
             labelNames: ["ip_address", "device_name", "device_type", "category"],
@@ -147,9 +147,9 @@ export class Pinger implements IPinger {
                 const roundtrip_ms = Number(ping_result[4]);
 
                 // check-it
-                if (this.prometheus_Pinger_Gauge) {
+                if (this.prometheus_Pinger_Up_Gauge) {
                     // set gauge
-                    this.prometheus_Pinger_Gauge.set(
+                    this.prometheus_Pinger_Up_Gauge.set(
                         {
                             ip_address: `${ip_address}`,
                             device_name: `${device_name}`,
@@ -235,9 +235,6 @@ export class Pinger implements IPinger {
 
             // ping-it
             this.ip_pinger.pingHost(device.ip_address, (error: Error | null, target: string, sent: Date, received: Date) => {
-                // calculate ping round-trip
-                const round_trip_ms = received.getTime() - sent.getTime();
-
                 // check
                 if (error !== null) {
                     // ping error
@@ -246,8 +243,11 @@ export class Pinger implements IPinger {
                     // Resolve with false
                     resolve([device.ip_address, device.source, device.device_type, false, 0]);
                 } else {
+                    // calculate ping round-trip
+                    const round_trip_ms = received.getTime() - sent.getTime();
+
                     // ping successful
-                    logger.write_info(`${originator}.ping_device`, `Device Alive, ${device.source}, ${device.ip_address}, ${device.device_type}, ${round_trip_ms}ms.`);
+                    logger.write_debug(`${originator}.ping_device`, `Device Alive, ${device.source}, ${device.ip_address}, ${device.device_type}, ${round_trip_ms}ms.`);
 
                     // Resolve with true
                     resolve([device.ip_address, device.source, device.device_type, true, round_trip_ms]);
