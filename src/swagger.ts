@@ -26,8 +26,6 @@ const swaggerOptions = {
     apis: ["./src/routes/**/*.ts"], // Recursively include all .ts files in all subdirectories
 };
 
-const swaggerDocs = swaggerJsDoc(swaggerOptions);
-
 export const setupSwagger = (app: Express) => {
-    app.use("/swagger", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+    app.use("/swagger", swaggerUi.serve, swaggerUi.setup(swaggerJsDoc(swaggerOptions)));
 };
