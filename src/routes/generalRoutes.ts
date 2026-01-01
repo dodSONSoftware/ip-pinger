@@ -93,6 +93,29 @@ export function createRoutes(app: express.Application, config: string, pinger: I
 
     /**
      * @swagger
+     * /ping/{target}:
+     *   get:
+     *     summary: Pings the given ip-address and return the results.
+     *     description: Returns all of the ping results.
+     *     responses:
+     *       200:
+     *         description: Pings all devices and returns the results.
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 about:
+     *                   type: string
+     *                 version:
+     *                   type: string
+     */
+    app.route("/ping/:target").get(async (req: express.Request, res: express.Response) => {
+        await res.type("application/json").status(OK).json(await getPing(req.params.target));
+    });
+
+    /**
+     * @swagger
      * /read-config:
      *   get:
      *     summary: Read the configuration file
@@ -221,6 +244,18 @@ function getAbout() {
     // log it
     console.log("generalRoutes.ts/getAbout", JSON.stringify(aboutInformation));
     return aboutInformation;
+}
+
+async function getPing(ip_address: string): Promise<Record<string, any>> {
+    // ping device
+    const [is_alive, round_trip_ms] = await ip_pinger.ping_device(ip_address);
+
+    // return results
+    return {
+        "ip_address": ip_address,
+        "is_alive": is_alive,
+        "roundtrip_ms": round_trip_ms
+    };
 }
 
 async function getPings(devices: Record<string, any>[]): Promise<Record<string, any>> {
