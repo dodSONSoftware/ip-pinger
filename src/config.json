@@ -7,27 +7,12 @@
   "devices": [
     {
       "source": "Indoor",
-      "ip-address": "192.168.1.22",
+      "ip-address": "192.168.1.28",
       "device-type": "sensor"
     },
     {
       "source": "Outdoor",
-      "ip-address": "192.168.1.151",
-      "device-type": "sensor"
-    },
-    {
-      "source": "Pool",
-      "ip-address": "192.168.1.107",
-      "device-type": "sensor"
-    },
-    {
-      "source": "Winter Room",
-      "ip-address": "192.168.1.241",
-      "device-type": "sensor"
-    },
-    {
-      "source": "Rens Room",
-      "ip-address": "192.168.1.115",
+      "ip-address": "192.168.1.157",
       "device-type": "sensor"
     }
   ]

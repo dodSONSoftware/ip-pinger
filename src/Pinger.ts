@@ -5,8 +5,8 @@
  * See the LICENSE file for the full terms.
  */
 
-import { IPinger, IDevice, ILogger, IConfig } from "./interfaces";
-import { sleep, sleep_from_start } from "./systemFunctions";
+import * as dli from "./interfaces";
+import { get_timestamp, sleep, sleep_from_start } from "./systemFunctions";
 import { register, Gauge } from "prom-client";
 import express, { NextFunction } from "express";
 import bodyParser from "body-parser";
@@ -14,14 +14,16 @@ import { setupSwagger } from "./swagger";
 import { createRoutes } from "./routes/generalRoutes";
 const ping = require("net-ping");
 
-export class Pinger implements IPinger {
+export class Pinger implements dli.IPinger {
     // ********
     // ******** private properties
 
+    static thisdude: dli.IPinger;
+
     private readonly originator: string = "Pinger";
     private readonly config_str: string;
-    private readonly configuration: IConfig;
-    private readonly logger: ILogger;
+    private readonly configuration: dli.IConfig;
+    private readonly logger: dli.ILogger;
     // ----
     private readonly ip_pinger: any;
     private readonly express: any;
@@ -32,7 +34,9 @@ export class Pinger implements IPinger {
     // ********
     // ******** ctor
 
-    constructor(config: IConfig, config_str: string, logger: ILogger) {
+    constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger) {
+        Pinger.thisdude = this;
+
         // save parameters
         this.configuration = config;
         this.config_str = config_str;
@@ -65,7 +69,7 @@ export class Pinger implements IPinger {
             res.end(await register.metrics());
         });
 
-        // starting the express server
+        // start the express server
         this.express.listen(this.configuration.prometheus_port, () => {
             // log-it
             this.logger.write_info(this.originator + ".ctor", `Express Server, for Prometheus, is running at http://localhost:${this.configuration.prometheus_port}`);
@@ -79,15 +83,18 @@ export class Pinger implements IPinger {
         this.express.use(cors());
         this.express.use(bodyParser.json());
 
-        // Simple request logger
+        // add a simple request logger
         this.express.use((req: Request, res: Response, next: NextFunction) => {
-            console.log(`${req.method} ${req.url}`);
+            this.logger.write_debug(this.originator, `${req.method} ${req.url}`);
             next();
         });
 
+        // ******** SETUP ROUTES
+
+        createRoutes(this.express, this.config_str, this);
+
         // ******** SETUP SWAGGER
 
-        createRoutes(this.express, this.config_str);
         setupSwagger(this.express);
 
         // ******** CREATE THE PINGER
@@ -131,7 +138,7 @@ export class Pinger implements IPinger {
 
             // process all devices
             for (const device of this.configuration.devices) {
-                ping_workers.push(this.ping_device(device));
+                ping_workers.push(this.ping_idevice(device));
             }
 
             // wait for all worker to complete
@@ -145,6 +152,8 @@ export class Pinger implements IPinger {
                 const device_type = String(ping_result[2]);
                 const is_alive = Number(ping_result[3]);
                 const roundtrip_ms = Number(ping_result[4]);
+
+                // ******** process prometheus metrics
 
                 // check-it
                 if (this.prometheus_Pinger_Up_Gauge) {
@@ -190,10 +199,43 @@ export class Pinger implements IPinger {
         }
     }
 
+    public async ping_device(ip_address: string): Promise<[boolean, number]> {
+        // capture variables
+        const logger = this.logger;
+        const originator = this.originator;
+
+        return new Promise<[boolean, number]>((resolve) => {
+            // log-it
+            logger.write_debug(`${originator}.ping_device`, `Pinging Device [${ip_address}]...`);
+
+            // ping-it
+            this.ip_pinger.pingHost(ip_address, (error: Error | null, target: string, sent: Date, received: Date) => {
+                // check
+                if (error !== null) {
+                    // ping error
+                    logger.write_error(`${originator}.ping_device`, `"${ip_address}" Device Error, ${ip_address}, ${error}`);
+
+                    // Resolve with false
+                    resolve([false, 0]);
+
+                } else {
+                    // calculate ping round-trip
+                    const round_trip_ms = received.getTime() - sent.getTime();
+
+                    // ping successful
+                    logger.write_debug(`${originator}.ping_device`, `"${ip_address}" Device Alive, ${round_trip_ms}ms.`);
+
+                    // Resolve with true
+                    resolve([true, round_trip_ms]);
+                }
+            });
+        });
+    }
+
     // ****************************************************************
     // ******** private functions
 
-    private setup_net_pinger_functions(logger: ILogger): void {
+    private setup_net_pinger_functions(logger: dli.ILogger): void {
         // init
         const net_pinger = this.ip_pinger;
         const originator = this.originator;
@@ -216,29 +258,21 @@ export class Pinger implements IPinger {
         });
     }
 
-    /**
-     * pings a device.
-     *
-     * @param device - The Device.
-     * @returns A Tuple[ ip_address, device_name, device_type, is_alive, round_trip_ms ]
-     */
-    private async ping_device(device: IDevice): Promise<[string, string, string, boolean, number]> {
-        // TODO: I think I need to add the histogram here; maybe inject it into this function
-
+    private async ping_idevice(device: dli.IDevice): Promise<[string, string, string, boolean, number]> {
         // capture variables
         const logger = this.logger;
         const originator = this.originator;
 
         return new Promise<[string, string, string, boolean, number]>((resolve) => {
             // log-it
-            logger.write_debug(`${originator}.ping_device`, `Pinging Device [${device.source}, ${device.ip_address}, ${device.device_type}]...`);
+            logger.write_debug(`${originator}.ping_idevice`, `Pinging Device [${device.source}, ${device.ip_address}, ${device.device_type}]...`);
 
             // ping-it
             this.ip_pinger.pingHost(device.ip_address, (error: Error | null, target: string, sent: Date, received: Date) => {
                 // check
                 if (error !== null) {
                     // ping error
-                    logger.write_error(`${originator}.ping_device`, `Device Error, ${device.source}, ${device.ip_address}, ${device.device_type}, ${error}`);
+                    logger.write_error(`${originator}.ping_idevice`, `Device Error, ${device.source}, ${device.ip_address}, ${device.device_type}, ${error}`);
 
                     // Resolve with false
                     resolve([device.ip_address, device.source, device.device_type, false, 0]);
@@ -247,7 +281,7 @@ export class Pinger implements IPinger {
                     const round_trip_ms = received.getTime() - sent.getTime();
 
                     // ping successful
-                    logger.write_debug(`${originator}.ping_device`, `Device Alive, ${device.source}, ${device.ip_address}, ${device.device_type}, ${round_trip_ms}ms.`);
+                    logger.write_debug(`${originator}.ping_idevice`, `Device Alive, ${device.source}, ${device.ip_address}, ${device.device_type}, ${round_trip_ms}ms.`);
 
                     // Resolve with true
                     resolve([device.ip_address, device.source, device.device_type, true, round_trip_ms]);

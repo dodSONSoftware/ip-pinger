@@ -28,6 +28,15 @@ export interface ILogger {
 
 export interface IPinger {
     run(): Promise<void>;
+    //ping_device(ip_address: string): [boolean, number]
+    ping_device(ip_address: string): Promise<[boolean, number]>
+}
+
+export interface IPingResults {
+    source: string;
+    ip_address: string;
+    is_alive: boolean;
+    roundtrip_ms: number;
 }
 
 export interface IConfig {
