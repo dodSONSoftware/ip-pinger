@@ -18,6 +18,10 @@ let config: Map<string, any> | null = new Map<string, any>();
 let logger: Logger;
 let pinger_dude: interfaces.IPinger;
 
+// ******** log the boot-up
+//console.log(`>>>>>>>> Booting the IP Pinger Application at [${sysFunc.get_timestamp(false)}]`);
+Logger.write_local_log(interfaces.LogLevel.Info, "boot", `Booting the IP Pinger Application.`);
+
 // ******** local functions
 
 function initialize() {
@@ -28,28 +32,28 @@ function initialize() {
     const [configuration, config_str] = loadConfig("./config.json");
 
     // log it
-    console.log(`CONFIGURATION\n\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n`);
+    console.log(`CONFIGURATION\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n`);
     console.log(`docker-container-name: ${configuration.docker_container_name}`);
     console.log(`log_level: ${configuration.log_level}`);
     console.log(`always_log_errors: ${configuration.always_log_errors}`);
     console.log(`prometheus_port: ${configuration.prometheus_port}`);
     console.log(`interval_secs: ${configuration.interval_secs}`);
     configuration.devices.forEach((device: interfaces.IDevice) => {
-        console.log(`\t ${device.source}: ${device.ip_address}, ${device.device_type}`);
+        console.log(`\t ${device.source}: ${device.ip_address}`);
     });
-    console.log(`\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n\n`);
+    console.log(`\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
 
     // initialize logger
     logger = new Logger(configuration);
 
     // log-it
-    logger.write_debug(originator + ".initialize", `Starting the Pinger Application...`);
+    logger.write_debug(originator + ".initialize", `Starting the IP Pinger Application.`);
 
     // init pinger
     pinger_dude = new Pinger(configuration, config_str, logger);
 
     // log-it
-    logger.write_info(originator + ".initialize", `Pinger Application initialized.`, start_date);
+    logger.write_info(originator + ".initialize", `IP Pinger Application initialized.`, start_date);
 }
 
 // ******** main function

@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "npm install && npx tsc && cp src/config.json dist/config.json",
+    "build": "npx tsc && cp src/config.json dist/config.json",
     "start": "cd dist && node index.js",
     "dev": "nodemon --watch src --exec ts-node src/index.ts"
   },

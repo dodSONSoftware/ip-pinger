@@ -8,13 +8,15 @@
 import express from "express";
 import { validateConfig } from "../common";
 import { ensureError, executeCommandLine_Command, sleep, write_file } from "../systemFunctions";
-import { IDevice, IPinger, IPingResults } from "../interfaces";
+import { IDevice, ILogger, IPinger, IPingResults } from "../interfaces";
 import { boolean, number } from "zod";
 import { PingResults } from "../PingResults";
 
 // **** HTTP Status Codes
 
 export const OK = 200;
+export const _400 = 400;
+export const _418 = 418;
 export const InternalServerError = 500;
 
 // **** MIME Types
@@ -26,7 +28,7 @@ export const Json = "application/json";
 
 const aboutInformation = {
     name: "IP Pinger Service",
-    version: "1.0.0",
+    version: "1.0.1",
     author: "dodson labs",
     description: "Provides device ping information.",
 };
@@ -36,14 +38,16 @@ const aboutInformation = {
 var configuration: string;
 var config_json: Record<string, any>;
 var ip_pinger: IPinger;
+var log_writer: ILogger;
 
 // ******** CREATE Routes
 
-export function createRoutes(app: express.Application, config: string, pinger: IPinger) {
+export function createRoutes(app: express.Application, config: string, pinger: IPinger, logger: ILogger) {
     // **** initialize
     configuration = config;
     config_json = JSON.parse(configuration);
     ip_pinger = pinger;
+    log_writer = logger;
 
     /**
      * @swagger
@@ -184,24 +188,20 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      */
     app.route("/write-config").post((req: express.Request, res: express.Response) => {
         try {
+            // get body as json and verify
             const json_str = JSON.stringify(req.body);
-
-
-
-            console.log(`\n>>>>>>>>\n${JSON.stringify(req.body)}\n<<<<<<<<\n`);
-
-
-
             const validData = validateConfig(json_str);
+
+            // check
             if (validData.ok) {
-                res.status(200).json({ message: "Valid configuration data received" });
-                write_file("./config.json", json_str);
+                write_file("./config.json", JSON.parse(JSON.stringify(json_str, null, 2)));
+                res.status(OK).json({ message: "Valid configuration data received. Configuration saved." });
 
             } else {
-                res.status(400).json({ message: "VALIDATION ERROR: Invalid configuration data received", errors: validData.errors });
+                res.status(_400).json({ message: "VALIDATION ERROR: Invalid configuration data received.", errors: validData.errors });
             }
         } catch (error) {
-            res.status(400).json({ message: `ERROR: Invalid configuration data received: ${ensureError(error).message}` });
+            res.status(_400).json({ message: `ERROR: Invalid configuration data received: ${ensureError(error).message}` });
         }
     });
 
@@ -219,21 +219,29 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      *         description: Error
      */
     app.route("/restart").post(async (req: express.Request, res: express.Response) => {
+        // init
+        const script_str = `docker container restart ${config_json["docker-container-name"]}`;
+
         try {
-            // ! ################################################################
+            // log-it
+            log_writer.write_debug("generalRoutes.createRoutes..(restart)", `EXECUTING SCRIPT --> ${script_str}`);
+
+            // respond
+            res.status(OK).json({ message: `Restarting docker container` });
+
+            // execute script
+            await sleep(1500);
 
             // TODO: ... FIX THIS ...
-
-            const script_str = `docker container restart ${config_json["docker-container-name"]}`;
-            console.log(`\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> EXECUTING --> ${script_str}\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n`);
-            res.status(200).json({ message: `Restarting docker container` });
-            await sleep(1000);
-            console.log("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
-            //await executeCommandLine_Command(script_str);
-
             // ! ################################################################
-        } catch (error) {
-            res.status(418).json({ message: (error as Error).message });
+            await executeCommandLine_Command(script_str);
+            //throw new Error("Restart not currently working...");
+            // ! ################################################################
+
+        } catch (err) {
+            const error = ensureError(err);
+            log_writer.write_error("generalRoutes.createRoutes..(restart)", `Running Script: "${script_str}", Error: ${error.message}`);
+            res.status(_418).json({ message: error.message });
         }
     });
 }
@@ -265,16 +273,10 @@ async function getPings(devices: Record<string, any>[]): Promise<Record<string, 
         const source = String(device["source"]);
         const ip_address = String(device["ip-address"]);
 
-        // ping device
-        const [is_alive, round_trip_ms] = await ip_pinger.ping_device(ip_address);
-
-        // return results
-        return {
-            "source": source,
-            "ip_address": ip_address,
-            "is_alive": is_alive,
-            "roundtrip_ms": round_trip_ms
-        };
+        // ping device, add the source and return the results
+        let dude = await getPing(ip_address);
+        dude["source"] = source;
+        return dude;
     }));
 
     // return all results

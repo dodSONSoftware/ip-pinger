@@ -51,5 +51,4 @@ export interface IConfig {
 export interface IDevice {
     source: string;
     ip_address: string;
-    device_type: string;
 }
