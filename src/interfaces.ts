@@ -29,7 +29,8 @@ export interface ILogger {
 export interface IPinger {
     run(): Promise<void>;
     //ping_device(ip_address: string): [boolean, number]
-    ping_device(ip_address: string): Promise<[boolean, number]>
+    ping_device(ip_address: string): Promise<[boolean, number]>;
+    updateConfig(config: IConfig, config_str: string): void;
 }
 
 export interface IPingResults {
@@ -44,6 +45,7 @@ export interface IConfig {
     log_level: string;
     always_log_errors: boolean;
     prometheus_port: number;
+    api_port: number;
     interval_secs: number;
     devices: IDevice[];
 }

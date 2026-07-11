@@ -1,54 +1,61 @@
 # ------------------------------------------------
 # Stage 1: Build the TypeScript application
+FROM node:22-slim AS builder
 
-# Start with a Node.js image
-FROM node:22 AS builder
+# Install build tools for native modules
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory
 WORKDIR /app
 
-# Copy files
+# Copy package files first (better layer caching)
+COPY package*.json ./
+
+# Install all dependencies (including devDependencies for TypeScript)
+RUN npm ci --include=dev
+
+# Copy source code
 COPY . .
 
-# Install only production dependencies (this will also include TypeScript if it's listed in devDependencies)
-RUN npm install -g typescript
-RUN npm ci --include=dev 
+# Compile TypeScript
 RUN npx tsc
 
 # ------------------------------------------------
-# Stage 2: Create the final image
+# Stage 2: Production runtime
+FROM node:22-slim
 
-# Start with a Node.js image
-FROM node:22
+# Install only runtime requirements (libcap2-bin for setcap)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libcap2-bin \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory
 WORKDIR /app
 
-# Copy only the necessary files from the builder stage
+# Copy package files
+COPY package*.json ./
+
+# Copy node_modules from builder (includes pre-compiled native modules)
+# This avoids needing build tools in the production stage
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy compiled JavaScript from builder
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
 
-# Install only production dependencies
-RUN npm install --only=production && npm cache clean --force
-
-# Install Docker CLI (if required)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl gnupg && \
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | \
-    gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-    https://download.docker.com/linux/debian $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
-    > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends docker-ce-cli && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set the working directory
-WORKDIR /app/dist
-
-# Expose the application port
+# Expose the application ports
 EXPOSE 3300
+EXPOSE 9090
 
-# Command to run the application (replace with your actual entry point)
-CMD ["node", "index.js"]
+# Grant raw socket capabilities to Node.js binary (Linux capability approach)
+# This allows raw sockets without running as root
+RUN setcap cap_net_raw+ep $(readlink -f $(which node))
+
+# Run as non-root user for better security
+USER node
+
+# Command to run the application
+CMD ["node", "dist/index.js"]

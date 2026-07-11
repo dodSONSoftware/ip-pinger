@@ -5,16 +5,22 @@
  * See the LICENSE file for the full terms.
  */
 
-import { join } from "path";
 import { IConfig, IDevice } from "./interfaces";
 import { readFileSync } from "fs";
 import { z } from "zod";
+import { getEnvironmentVariable } from "./systemFunctions";
 
-export function loadConfig(fileName: string): [IConfig, string] {
+// Config file path - defaults to Docker mount point
+const CONFIG_PATH = getEnvironmentVariable("CONFIG_PATH", "/app/dist/config.json");
+
+export function getConfigPath(): string {
+    return CONFIG_PATH;
+}
+
+export function loadConfig(): [IConfig, string] {
     try {
         // read the file (synchronously for simplicity)
-        const filePath = join(__dirname, fileName);
-        const rawText = readFileSync(filePath, "utf-8");
+        const rawText = readFileSync(CONFIG_PATH, "utf-8");
 
         // parse the JSON – this gives a plain object
         const data = JSON.parse(rawText) as Record<string, unknown>;
@@ -38,6 +44,7 @@ export function loadConfig(fileName: string): [IConfig, string] {
         const log_level = get<string>(data, "log-level");
         const always_log_errors = get<boolean>(data, "always-log-errors");
         const prometheus_port = get<number>(data, "prometheus-port");
+        const api_port = get<number>(data, "api-port");
         const interval_secs = get<number>(data, "interval-secs");
 
         // convert the raw devices array to IDevice[]
@@ -55,6 +62,7 @@ export function loadConfig(fileName: string): [IConfig, string] {
                 log_level,
                 always_log_errors,
                 prometheus_port,
+                api_port,
                 interval_secs,
                 devices,
             },
@@ -79,6 +87,7 @@ const ConfigSchema = z.object({
     "log-level": z.enum(["debug", "info", "warn", "error"]),
     "always-log-errors": z.boolean(),
     "prometheus-port": z.number().int().positive(),
+    "api-port": z.number().int().positive(),
     "interval-secs": z.number().int().positive(),
     devices: z.array(DeviceSchema),
 });

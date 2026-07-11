@@ -6,11 +6,11 @@
  */
 
 import express from "express";
-import { validateConfig } from "../common";
-import { ensureError, executeCommandLine_Command, sleep, write_file } from "../systemFunctions";
+import { validateConfig, getConfigPath, loadConfig } from "../common";
+import { ensureError, write_file } from "../systemFunctions";
 import { IDevice, ILogger, IPinger, IPingResults } from "../interfaces";
-import { boolean, number } from "zod";
-import { PingResults } from "../PingResults";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 // **** HTTP Status Codes
 
@@ -26,11 +26,47 @@ export const Json = "application/json";
 
 // **** STATIC Information
 
-const aboutInformation = {
-    name: "IP Pinger Service",
-    version: "1.0.1",
-    author: "dodson labs",
-    description: "Provides device ping information.",
+export const aboutInformation: Record<string, any> = {
+    about: {
+        name: "IP Pinger Service",
+        version: "1.2.0",
+        author: "Randy Dodson (dodsonsoftware@gmail.com)",
+        description: "Provides device ping information with hot-reload configuration support.",
+        copyright: "Copyright (c) 2025-2026 dodson Software ( dodson labs )",
+        license: "Licensed under the MIT License with Patent Grant and NOTICE preservation."
+    },
+    commands: {
+        "name": "General",
+        "help": {
+            "description": "IP Pinger Service",
+            "commands": [
+                {
+                    "route": "/about",
+                    "description": "Returns service information and available commands."
+                },
+                {
+                    "route": "/ping",
+                    "description": "Pings all configured devices."
+                },
+                {
+                    "route": "/ping/:target",
+                    "description": "Pings the specified IP address and returns the result."
+                },
+                {
+                    "route": "/read-config",
+                    "description": "Reads the current configuration."
+                },
+                {
+                    "route": "/write-config",
+                    "description": "Updates the configuration and reloads it."
+                },
+                {
+                    "route": "/reload-config",
+                    "description": "Reloads the configuration from disk without changing the payload."
+                }
+            ]
+        }
+    }
 };
 
 // **** PRIVATE Variables
@@ -92,37 +128,49 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      *                   type: string
      */
     app.route("/ping").get(async (req: express.Request, res: express.Response) => {
-        await res.type("application/json").status(OK).json(await getPings(config_json["devices"]));
+        res.type("application/json").status(OK).json(await getPings(config_json["devices"]));
     });
 
     /**
      * @swagger
      * /ping/{target}:
      *   get:
-     *     summary: Pings the given ip-address and return the results.
-     *     description: Returns all of the ping results.
+     *     summary: Pings the given ip-address and returns the results.
+     *     description: Returns the ping result for the specified target IP address.
+     *     parameters:
+     *       - name: target
+     *         in: path
+     *         required: true
+     *         description: The IP address to ping
+     *         schema:
+     *           type: string
      *     responses:
      *       200:
-     *         description: Pings all devices and returns the results.
+     *         description: Ping result for the target IP
      *         content:
      *           application/json:
      *             schema:
      *               type: object
      *               properties:
-     *                 about:
+     *                 ip_address:
      *                   type: string
-     *                 version:
-     *                   type: string
+     *                   example: "192.168.1.1"
+     *                 is_alive:
+     *                   type: boolean
+     *                   example: true
+     *                 roundtrip_ms:
+     *                   type: number
+     *                   example: 45
      */
     app.route("/ping/:target").get(async (req: express.Request, res: express.Response) => {
-        await res.type("application/json").status(OK).json(await getPing(req.params.target));
+        res.type("application/json").status(OK).json(await getPing(String(req.params.target)));
     });
 
     /**
      * @swagger
      * /read-config:
      *   get:
-     *     summary: Read the configuration file
+     *     summary: Read the configuration file.
      *     description: Returns the configuration file.
      *     responses:
      *       200:
@@ -138,7 +186,13 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      *                   type: string
      */
     app.route("/read-config").get((req: express.Request, res: express.Response) => {
-        res.type(Json).status(OK).json(JSON.parse(configuration));
+        try {
+            const configPath = getConfigPath();
+            const rawText = readFileSync(configPath, "utf-8");
+            res.type(Json).status(OK).json(JSON.parse(rawText));
+        } catch (error) {
+            res.status(_400).json({ message: `ERROR: Could not read config: ${ensureError(error).message}` });
+        }
     });
 
     /**
@@ -194,8 +248,16 @@ export function createRoutes(app: express.Application, config: string, pinger: I
 
             // check
             if (validData.ok) {
-                write_file("./config.json", JSON.parse(JSON.stringify(json_str, null, 2)));
-                res.status(OK).json({ message: "Valid configuration data received. Configuration saved." });
+                // Write to the Docker-mounted config path
+                write_file(getConfigPath(), JSON.parse(JSON.stringify(json_str, null, 2)));
+
+                // Use loadConfig to properly parse and convert the config
+                const [newConfig, config_text] = loadConfig();
+                if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
+                    ip_pinger.updateConfig(newConfig, config_text);
+                }
+
+                res.status(OK).json({ message: "Valid configuration data received. Configuration saved and hot-reloaded." });
 
             } else {
                 res.status(_400).json({ message: "VALIDATION ERROR: Invalid configuration data received.", errors: validData.errors });
@@ -207,41 +269,35 @@ export function createRoutes(app: express.Application, config: string, pinger: I
 
     /**
      * @swagger
-     * /restart:
-     *   post:
-     *     summary: Execute a script that will restart the docker container that the IP Pinger is contained in.
-     *     requestBody:
-     *       required: false
+     * /reload-config:
+     *   get:
+     *     summary: Reloads the configuration from disk.
+     *     description: Reloads the configuration from disk without changing the payload. Updates the running pinger with the new configuration.
      *     responses:
      *       200:
-     *         description: Restarting docker container
-     *       418:
-     *         description: Error
+     *         description: Configuration reloaded successfully
+     *       400:
+     *         description: Invalid configuration on disk or could not find config file
      */
-    app.route("/restart").post(async (req: express.Request, res: express.Response) => {
-        // init
-        const script_str = `docker container restart ${config_json["docker-container-name"]}`;
-
+    app.route("/reload-config").get((req: express.Request, res: express.Response) => {
         try {
-            // log-it
-            log_writer.write_debug("generalRoutes.createRoutes..(restart)", `EXECUTING SCRIPT --> ${script_str}`);
+            // Use loadConfig to properly parse and convert the config
+            const [newConfig, rawText] = loadConfig();
 
-            // respond
-            res.status(OK).json({ message: `Restarting docker container` });
+            // Update internal route state
+            configuration = rawText;
+            config_json = JSON.parse(rawText);
 
-            // execute script
-            await sleep(1500);
+            // Update the running pinger with the new configuration
+            if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
+                ip_pinger.updateConfig(newConfig, rawText);
+            }
 
-            // TODO: ... FIX THIS ...
-            // ! ################################################################
-            await executeCommandLine_Command(script_str);
-            //throw new Error("Restart not currently working...");
-            // ! ################################################################
+            log_writer.write_info("generalRoutes.reload-config", `Configuration reloaded successfully.`);
+            res.status(OK).json({ message: "Configuration reloaded successfully." });
 
-        } catch (err) {
-            const error = ensureError(err);
-            log_writer.write_error("generalRoutes.createRoutes..(restart)", `Running Script: "${script_str}", Error: ${error.message}`);
-            res.status(_418).json({ message: error.message });
+        } catch (error) {
+            res.status(_400).json({ message: `ERROR: Failed to reload configuration: ${ensureError(error).message}` });
         }
     });
 }
@@ -250,7 +306,7 @@ export function createRoutes(app: express.Application, config: string, pinger: I
 
 function getAbout() {
     // log it
-    console.log("generalRoutes.ts/getAbout", JSON.stringify(aboutInformation));
+    // console.log removed for production
     return aboutInformation;
 }
 

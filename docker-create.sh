@@ -1,19 +1,21 @@
 #!/bin/bash
 
 echo "Docker building docker image: ip-pinger"
-docker build -t ip-pinger:1.0 --no-cache .
+docker build -t ip-pinger:latest --no-cache .
 
 echo
 echo "Docker running docker container: ip-pinger"
 
-# running a docker container in privileged mode is not ideal; further research is needed.
+# Run with network capabilities
 docker run -d \
-           --privileged \
-           --name ip-pinger \
-           -p 3300:3300 \
-           -v /var/run/docker.sock:/var/run/docker.sock \
-           -v /mnt/ip-pinger-data/config.json:/app/dist/config.json \
-           ip-pinger:1.0
+  --name ip-pinger \
+  --restart unless-stopped \
+  -p 3300:3300 \
+  -p 9090:9090 \
+  --cap-add=NET_RAW \
+  --cap-add=NET_ADMIN \
+  -v /mnt/ip-pinger-data/config.json:/app/dist/config.json \
+  ip-pinger:latest
 
 echo
 echo "----"

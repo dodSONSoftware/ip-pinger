@@ -29,19 +29,10 @@ function initialize() {
     const start_date = new Date();
 
     // read configurations
-    const [configuration, config_str] = loadConfig("./config.json");
+    const [configuration, config_str] = loadConfig();
 
     // log it
-    console.log(`CONFIGURATION\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n`);
-    console.log(`docker-container-name: ${configuration.docker_container_name}`);
-    console.log(`log_level: ${configuration.log_level}`);
-    console.log(`always_log_errors: ${configuration.always_log_errors}`);
-    console.log(`prometheus_port: ${configuration.prometheus_port}`);
-    console.log(`interval_secs: ${configuration.interval_secs}`);
-    configuration.devices.forEach((device: interfaces.IDevice) => {
-        console.log(`\t ${device.source}: ${device.ip_address}`);
-    });
-    console.log(`\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
+    // Configuration logging removed for production
 
     // initialize logger
     logger = new Logger(configuration);

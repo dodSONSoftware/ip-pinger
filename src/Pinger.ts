@@ -21,8 +21,8 @@ export class Pinger implements dli.IPinger {
     static thisdude: dli.IPinger;
 
     private readonly originator: string = "Pinger";
-    private readonly config_str: string;
-    private readonly configuration: dli.IConfig;
+    private config_str: string;
+    private configuration: dli.IConfig;
     private readonly logger: dli.ILogger;
     // ----
     private readonly ip_pinger: any;
@@ -69,13 +69,6 @@ export class Pinger implements dli.IPinger {
             res.end(await register.metrics());
         });
 
-        // start the express server
-        this.express.listen(this.configuration.prometheus_port, () => {
-            // log-it
-            this.logger.write_info(this.originator + ".ctor", `Express Server, for Prometheus, is running at http://localhost:${this.configuration.prometheus_port}`);
-            this.logger.write_info(this.originator + ".ctor", `Prometheus metrics can be found at http://localhost:${this.configuration.prometheus_port}/metrics`);
-        });
-
         // ******** SETUP MIDDLEWARE
 
         // add CORS
@@ -96,6 +89,26 @@ export class Pinger implements dli.IPinger {
         // ******** SETUP SWAGGER
 
         setupSwagger(this.express);
+
+        // start the express server on prometheus port
+        const promServer = this.express.listen(this.configuration.prometheus_port, () => {
+            // log-it
+            this.logger.write_info(this.originator + ".ctor", `Express Server, for Prometheus, is running at http://localhost:${this.configuration.prometheus_port}`);
+            this.logger.write_info(this.originator + ".ctor", `Prometheus metrics can be found at http://localhost:${this.configuration.prometheus_port}/metrics`);
+        });
+
+        promServer.on('error', (err: Error) => {
+            this.logger.write_error(this.originator + ".ctor", `Prometheus server error: ${err.message}`);
+        });
+
+        // Also listen on API port for HTTP API endpoints
+        const apiServer = this.express.listen(this.configuration.api_port, () => {
+            this.logger.write_info(this.originator + ".ctor", `API Server is running at http://localhost:${this.configuration.api_port}`);
+        });
+
+        apiServer.on('error', (err: Error) => {
+            this.logger.write_error(this.originator + ".ctor", `API server error: ${err.message}`);
+        });
 
         // ******** CREATE THE PINGER
 
@@ -119,6 +132,19 @@ export class Pinger implements dli.IPinger {
         logger.write_info(this.originator + ".ctor", msg);
         logger.write_info(this.originator + ".ctor", `Ping Interval Cycle: ${this.configuration.interval_secs} seconds.`);
     } // end-constructor
+
+    // ****************************************************************
+    // ******** Public methods for runtime configuration updates
+
+    /**
+     * Updates the configuration at runtime without restarting the service.
+     * This allows hot-reloading of the configuration from disk.
+     */
+    public updateConfig(config: dli.IConfig, config_str: string): void {
+        this.configuration = config;
+        this.config_str = config_str;
+        this.logger.write_info(this.originator + ".updateConfig", `Configuration updated. ${this.configuration.devices.length} devices configured.`);
+    }
 
     // ****************************************************************
     // ******** IPinger properties
