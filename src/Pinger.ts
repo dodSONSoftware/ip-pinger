@@ -1,8 +1,6 @@
 /*
- * Copyright (c) 2025 dodson Software ( dodson labs )
- * Author: Randy Dodson <dodsonsoftware@gmail.com>
- * Licensed under the MIT License with Patent Grant and NOTICE preservation.
- * See the LICENSE file for the full terms.
+ * Copyright (c) 2026 dodson Software ( dodson labs )
+ * SPDX-License-Identifier: MIT
  */
 
 import * as dli from "./interfaces";
@@ -48,14 +46,14 @@ export class Pinger implements dli.IPinger {
         this.prometheus_Pinger_Up_Gauge = new Gauge({
             name: `pinged`,
             help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
-            labelNames: ["ip_address", "device_name", "device_type", "category"],
+            labelNames: ["ip_address", "device_name", "device_type"],
         });
 
         // create a gauge for device
         this.prometheus_Pinger_Roundtrip_Gauge = new Gauge({
             name: `pinged_roundtrip_ms`,
             help: "This indicator (numeric) shows the roundtrip in milliseconds.",
-            labelNames: ["ip_address", "device_name", "device_type", "category"],
+            labelNames: ["ip_address", "device_name", "device_type"],
         });
 
         // ******** SETUP EXPRESS
@@ -178,8 +176,9 @@ export class Pinger implements dli.IPinger {
                 // separate results
                 const ip_address = String(ping_result[0]);
                 const device_name = String(ping_result[1]);
-                const is_alive = Number(ping_result[2]);
-                const roundtrip_ms = Number(ping_result[3]);
+                const device_type = String(ping_result[2]);
+                const is_alive = Number(ping_result[3]);
+                const roundtrip_ms = Number(ping_result[4]);
 
                 // ******** process prometheus metrics
 
@@ -189,13 +188,14 @@ export class Pinger implements dli.IPinger {
                     this.prometheus_Pinger_Up_Gauge.set(
                         {
                             ip_address: `${ip_address}`,
-                            device_name: `${device_name}`
+                            device_name: `${device_name}`,
+                            device_type: `${device_type}`
                         },
                         is_alive
                     );
 
                     // log-it
-                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ is_alive: ${Boolean(is_alive)}, device_name: ${device_name}, ip_address: ${ip_address} ].`, start_date);
+                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ is_alive: ${Boolean(is_alive)}, device_name: ${device_name}, device_type: ${device_type}, ip_address: ${ip_address} ].`, start_date);
                 } else {
                     // log-it
                     this.logger.write_warn(this.originator + ".run", `Gauge Set; Gauge (Pinger_Gauge) not found: [ ${ip_address}, ${device_name} ]`, start_date);
@@ -207,7 +207,8 @@ export class Pinger implements dli.IPinger {
                     this.prometheus_Pinger_Roundtrip_Gauge.set(
                         {
                             ip_address: `${ip_address}`,
-                            device_name: `${device_name}`
+                            device_name: `${device_name}`,
+                            device_type: `${device_type}`
                         },
                         roundtrip_ms
                     );
@@ -284,24 +285,24 @@ export class Pinger implements dli.IPinger {
         });
     }
 
-    private async ping_idevice(device: dli.IDevice): Promise<[string, string, boolean, number]> {
+    private async ping_idevice(device: dli.IDevice): Promise<[string, string, string, boolean, number]> {
         // capture variables
         const logger = this.logger;
         const originator = this.originator;
 
-        return new Promise<[string, string, boolean, number]>((resolve) => {
+        return new Promise<[string, string, string, boolean, number]>((resolve) => {
             // ping-it
             this.ip_pinger.pingHost(device.ip_address, (error: Error | null, target: string, sent: Date, received: Date) => {
                 // check
                 if (error !== null) {
                     // Resolve with false
-                    resolve([device.ip_address, device.source, false, 0]);
+                    resolve([device.ip_address, device.source, device.device_type, false, 0]);
                 } else {
                     // calculate ping round-trip
                     const round_trip_ms = received.getTime() - sent.getTime();
 
                     // Resolve with true
-                    resolve([device.ip_address, device.source, true, round_trip_ms]);
+                    resolve([device.ip_address, device.source, device.device_type, true, round_trip_ms]);
                 }
             });
         });

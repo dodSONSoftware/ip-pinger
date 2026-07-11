@@ -1,8 +1,6 @@
 /*
- * Copyright (c) 2025 dodson Software ( dodson labs )
- * Author: Randy Dodson <dodsonsoftware@gmail.com>
- * Licensed under the MIT License with Patent Grant and NOTICE preservation.
- * See the LICENSE file for the full terms.
+ * Copyright (c) 2026 dodson Software ( dodson labs )
+ * SPDX-License-Identifier: MIT
  */
 
 import express from "express";
@@ -72,7 +70,7 @@ export const aboutInformation: Record<string, any> = {
 // **** PRIVATE Variables
 
 var configuration: string;
-var config_json: Record<string, any>;
+var configurationObj: Record<string, any>;
 var ip_pinger: IPinger;
 var log_writer: ILogger;
 
@@ -81,7 +79,7 @@ var log_writer: ILogger;
 export function createRoutes(app: express.Application, config: string, pinger: IPinger, logger: ILogger) {
     // **** initialize
     configuration = config;
-    config_json = JSON.parse(configuration);
+    configurationObj = JSON.parse(config);
     ip_pinger = pinger;
     log_writer = logger;
 
@@ -128,7 +126,9 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      *                   type: string
      */
     app.route("/ping").get(async (req: express.Request, res: express.Response) => {
-        res.type("application/json").status(OK).json(await getPings(config_json["devices"]));
+        const devices = configurationObj["devices"];
+        const results = await getPings(devices);
+        res.type("application/json").status(OK).json(results);
     });
 
     /**
@@ -253,6 +253,11 @@ export function createRoutes(app: express.Application, config: string, pinger: I
 
                 // Use loadConfig to properly parse and convert the config
                 const [newConfig, config_text] = loadConfig();
+
+                // Update internal route state
+                configuration = config_text;
+                configurationObj = newConfig;
+
                 if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
                     ip_pinger.updateConfig(newConfig, config_text);
                 }
@@ -286,7 +291,7 @@ export function createRoutes(app: express.Application, config: string, pinger: I
 
             // Update internal route state
             configuration = rawText;
-            config_json = JSON.parse(rawText);
+            configurationObj = newConfig;
 
             // Update the running pinger with the new configuration
             if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
@@ -324,17 +329,34 @@ async function getPing(ip_address: string): Promise<Record<string, any>> {
 
 async function getPings(devices: Record<string, any>[]): Promise<Record<string, any>> {
     // iterate thru each device in devices
-    const results: any[] = await Promise.all(devices.map(async (device) => {
-        // init
-        const source = String(device["source"]);
-        const ip_address = String(device["ip-address"]);
+    const results: any[] = await Promise.allSettled(
+        devices.map(async (device) => {
+            try {
+                // init
+                const source = String(device["source"]);
+                const ip_address = String(device["ip-address"]);
+                const device_type = String(device["device-type"] || "");
 
-        // ping device, add the source and return the results
-        let dude = await getPing(ip_address);
-        dude["source"] = source;
-        return dude;
-    }));
+                // ping device, add the source and return the results
+                let dude = await getPing(ip_address);
+                dude["source"] = source;
+                dude["device_type"] = device_type;
+                return dude;
+            } catch (err) {
+                // Return error info with device context preserved
+                return {
+                    source: String(device["source"]),
+                    ip_address: String(device["ip-address"]),
+                    device_type: String(device["device-type"] || ""),
+                    is_alive: false,
+                    roundtrip_ms: 0,
+                    error: ensureError(err).message
+                };
+            }
+        })
+    );
 
-    // return all results
+    // All results are now fulfilled (Promise.allSettled guarantees this),
+    // so we can just return the array directly
     return results;
 }

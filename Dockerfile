@@ -1,4 +1,6 @@
-# ------------------------------------------------
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 dodson Software ( dodson labs )
+
 # Stage 1: Build the TypeScript application
 FROM node:22-slim AS builder
 
@@ -15,7 +17,7 @@ WORKDIR /app
 # Copy package files first (better layer caching)
 COPY package*.json ./
 
-# Install all dependencies (including devDependencies for TypeScript)
+# Install all dependencies (including devDependencies for native module compilation)
 RUN npm ci --include=dev
 
 # Copy source code
@@ -28,7 +30,7 @@ RUN npx tsc
 # Stage 2: Production runtime
 FROM node:22-slim
 
-# Install only runtime requirements (libcap2-bin for setcap)
+# Install runtime requirements (libcap2-bin for setcap)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libcap2-bin \
@@ -39,11 +41,10 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Copy node_modules from builder (includes pre-compiled native modules)
-# This avoids needing build tools in the production stage
+# Copy pre-compiled node_modules from builder (includes native modules)
 COPY --from=builder /app/node_modules ./node_modules
 
-# Copy compiled JavaScript from builder
+# Copy pre-compiled JavaScript from builder
 COPY --from=builder /app/dist ./dist
 
 # Expose the application ports
