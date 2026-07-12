@@ -7,6 +7,7 @@ import type { IConfig, IDevice } from "./interfaces";
 import { readFileSync } from "fs";
 import { z } from "zod";
 import { getEnvironmentVariable } from "./systemFunctions";
+import { load } from "js-yaml";
 
 // Config file path - must be set via CONFIG_PATH environment variable
 const CONFIG_PATH_ENV = process.env["CONFIG_PATH"];
@@ -24,12 +25,12 @@ export function loadConfig(): [IConfig, string] {
         // read the file (synchronously for simplicity)
         const rawText = readFileSync(CONFIG_PATH, "utf-8");
 
-        // parse the JSON – this gives a plain object
-        const data = JSON.parse(rawText) as Record<string, unknown>;
+        // parse the YAML – this gives a plain object
+        const data = load(rawText) as Record<string, unknown>;
 
         // validate
         if (!validateConfig(rawText).ok) {
-            // invalid json
+            // invalid yaml
             throw new Error(`Invalid configuration.`);
         }
 
@@ -95,12 +96,12 @@ const ConfigSchema = z.object({
 export type Device = z.infer<typeof DeviceSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
-export function validateConfig(json: string): { ok: true; data: Config } | { ok: false; errors: string[] } {
+export function validateConfig(yaml: string): { ok: true; data: Config } | { ok: false; errors: string[] } {
     let parsed: unknown;
     try {
-        parsed = JSON.parse(json);
+        parsed = load(yaml);
     } catch (e) {
-        return { ok: false, errors: ["Invalid JSON format."] };
+        return { ok: false, errors: ["Invalid YAML format."] };
     }
 
     const result = ConfigSchema.safeParse(parsed);

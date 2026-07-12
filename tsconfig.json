@@ -21,6 +21,12 @@
   },
   "include": [
     "src/**/*",
-    "src/config.json"
+    "src/config.yml"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "jest.setup.js"
   ]
 }

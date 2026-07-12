@@ -9,9 +9,11 @@ An Express-based IP network pinger service written in TypeScript. Periodically p
 ## Running / Deploying
 
 ```bash
-npm run build   # Compile TypeScript and copy config.json to dist/
+npm run build   # Compile TypeScript and copy config.yml to dist/
 npm start       # Run compiled app: node ./dist/index.js
 npm run dev     # Hot-reload dev: nodemon --watch src --exec ts-node src/index.ts
+npm test        # Run Jest tests
+npm run lint    # Run ESLint
 ```
 
 ## Project Structure
@@ -27,14 +29,14 @@ src/
 ├── swagger.ts            -- Swagger UI setup
 ├── routes/
 │   └── generalRoutes.ts  -- Express route handlers
-├── config.json           -- Runtime configuration
+├── config.yml            -- Runtime configuration (YAML format)
 └── package.json          -- Dependencies and scripts
 ```
 
 ## Architecture
 
 ### Boot Sequence
-1. `initialize()` reads `config.json` into global `configuration` map
+1. `initialize()` reads `config.yml` into global `configuration` map
 2. Creates `Logger` instance with configuration
 3. Creates `Pinger` instance with configuration and logger
 4. Express servers start on both Prometheus and API ports
@@ -56,23 +58,17 @@ while (true):
 - `pinged` (Gauge) — 1 if device responds, 0 otherwise. Labels: `ip_address`, `device_name`
 - `pinged_roundtrip_ms` (Gauge) — Round-trip time in milliseconds. Labels: `ip_address`, `device_name`
 
-### Configuration (`config.json`)
-```json
-{
-  "docker-container-name": "string",
-  "log_level": "debug|info|warn|error",
-  "always_log_errors": true,
-  "prometheus_port": 9090,
-  "api_port": 3300,
-  "interval_secs": 60,
-  "devices": [
-    {
-      "source": "device-name",
-      "ip-address": "192.168.1.100",
-      "device-type": "sensor|controller|kiosk"
-    }
-  ]
-}
+### Configuration (`config.yml`)
+```yaml
+log-level: debug
+always-log-errors: true
+prometheus-port: 9090
+api-port: 3300
+interval-secs: 60
+devices:
+  - source: "device-name"
+    ip-address: "192.168.1.100"
+    device-type: sensor|controller|kiosk
 ```
 
 ### Hot-Reload Configuration
@@ -82,6 +78,8 @@ Configuration can be updated at runtime without restarting the service:
 - **GET `/read-config`** — Returns current configuration
 - **POST `/write-config`** — Updates configuration from request body and reloads it
 - **GET `/reload-config`** — Reloads configuration from disk without changing payload
+
+Note: Configuration is now stored in YAML format (`config.yml`) instead of JSON.
 
 The `Pinger.updateConfig()` method allows runtime configuration updates via the route handlers.
 
@@ -97,8 +95,8 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 
 - **Node >= 22 required** (Volta pinned to 22.22.0)
 - **TypeScript 5.x** with strict mode enabled
-- **Dependencies:** express, cors, body-parser, net-ping, prom-client, zod, swagger-jsdoc, swagger-ui-express
-- **Dev dependencies:** @types/* packages, nodemon, ts-node-dev
+- **Dependencies:** express, cors, body-parser, net-ping, prom-client, zod, swagger-jsdoc, swagger-ui-express, js-yaml
+- **Dev dependencies:** @types/* packages, nodemon, ts-node-dev, jest, ts-jest
 
 ## API Endpoints
 
@@ -121,10 +119,21 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 
 - **GET `/swagger`** — Swagger UI for API documentation (auto-generated from JSDoc comments)
 
+## Testing
+
+Tests are written using Jest and located in `tests/__tests__/`. Mock setup for `net-ping` is provided in `jest.setup.js`.
+
+**Commands:**
+```bash
+npm test          # Run all tests once
+npm run test:watch  # Watch mode for development
+npm run test:coverage  # Run with coverage report
+```
+
 ## Known Constraints
 
 - No authentication or authorization
 - No HTTPS support (intended for internal network use)
 - Single-threaded event loop (suitable for periodic pinging)
 - No automatic device discovery (must configure manually)
-- Configuration hot-reload requires valid JSON (validation occurs before applying)
+- Configuration hot-reload requires valid YAML (validation occurs before applying)

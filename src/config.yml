@@ -1,0 +1,18 @@
+log-level: debug
+always-log-errors: true
+prometheus-port: 9090
+api-port: 3300
+interval-secs: 30
+devices:
+  - source: "Air Light 1"
+    ip-address: "10.10.10.166"
+    device-type: sensor
+  - source: Outdoor
+    ip-address: "10.10.10.142"
+    device-type: sensor
+  - source: Pool
+    ip-address: "192.168.1.198"
+    device-type: sensor
+  - source: Winter Room
+    ip-address: "192.168.1.236"
+    device-type: sensor

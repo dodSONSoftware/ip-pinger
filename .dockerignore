@@ -4,10 +4,6 @@
 
 \*\*/.DS_Store
 
-# dodson labs core
-
-code/src/dodsonlabs/\*\*
-
 # \***\* **************\*\*****************
 
 # \*\*\*\* .gitignore Settings for NodeJS

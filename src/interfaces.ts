@@ -5,7 +5,7 @@
 
 // **** Logger
 
-export const enum LogLevel {
+export enum LogLevel {
     None = 0,
     Info,
     Warn,

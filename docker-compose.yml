@@ -1,0 +1,23 @@
+services:
+  ip-pinger:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ip-pinger
+    restart: unless-stopped
+    ports:
+      - "3300:3300"
+      - "9090:9090"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - CONFIG_PATH=/app/config.yml
+    volumes:
+      - /mnt/ip-pinger-data/config.yml:/app/config.yml
+    healthcheck:
+      test: [ "CMD", "curl", "-sf", "http://localhost:9090/metrics" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3

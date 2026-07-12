@@ -11,6 +11,7 @@ import { IDevice, IPingResults, LogLevel } from "../interfaces";
 import { Logger } from "../Logger";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { dump, load } from "js-yaml";
 
 // CommonJS provides __dirname automatically
 
@@ -88,7 +89,7 @@ const originator: string = "generalRoutes";
 export function createRoutes(app: express.Application, config: string, pinger: IPinger, logger: ILogger) {
     // **** initialize
     configuration = config;
-    configurationObj = JSON.parse(config);
+    configurationObj = load(config) as Record<string, any>;
     ip_pinger = pinger;
     log_writer = logger;
 
@@ -273,8 +274,12 @@ export function createRoutes(app: express.Application, config: string, pinger: I
 
             // check
             if (validData.ok) {
-                // Write to the Docker-mounted config path with formatted JSON
-                write_file(getConfigPath(), JSON.stringify(JSON.parse(json_str), null, 2));
+                // Parse the config to a plain object, then dump to YAML
+                const parsedConfig = JSON.parse(json_str);
+                const yamlStr = dump(parsedConfig);
+
+                // Write to the Docker-mounted config path with formatted YAML
+                write_file(getConfigPath(), yamlStr);
 
                 // Use loadConfig to properly parse and convert the config
                 const [newConfig, config_text] = loadConfig();
