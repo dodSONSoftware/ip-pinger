@@ -4,7 +4,8 @@
  */
 
 import * as sysFunc from "./systemFunctions";
-import { IConfig, ILogger, LogLevel } from "./interfaces";
+import type { IConfig, ILogger} from "./interfaces";
+import { LogLevel } from "./interfaces";
 
 // TODO: ----------------
 // TODO: reconfigure the logs to look better ( consider using json logs )

@@ -3,14 +3,16 @@
  * SPDX-License-Identifier: MIT
  */
 
-import * as dli from "./interfaces";
+import type * as dli from "./interfaces";
 import { get_timestamp, sleep, sleep_from_start } from "./systemFunctions";
 import { register, Gauge } from "prom-client";
-import express, { NextFunction } from "express";
+import type { NextFunction } from "express";
+import express from "express";
 import bodyParser from "body-parser";
 import { setupSwagger } from "./swagger";
 import { createRoutes } from "./routes/generalRoutes";
-const ping = require("net-ping");
+const netPing = require("net-ping");
+const cors = require("cors");
 
 export class Pinger implements dli.IPinger {
     // ********
@@ -70,7 +72,6 @@ export class Pinger implements dli.IPinger {
         // ******** SETUP MIDDLEWARE
 
         // add CORS
-        const cors = require("cors");
         this.express.use(cors());
         this.express.use(bodyParser.json());
 
@@ -112,14 +113,14 @@ export class Pinger implements dli.IPinger {
 
         // init the pinger
         const ping_options = {
-            networkProtocol: ping.NetworkProtocol.IPv4,
+            networkProtocol: netPing.NetworkProtocol.IPv4,
             packetSize: 16,
             retries: 1,
             sessionId: process.pid % 65535,
             timeout: 2000,
             ttl: 128,
         };
-        this.ip_pinger = ping.createSession(ping_options);
+        this.ip_pinger = netPing.createSession(ping_options);
 
         // setup functions
         this.setup_net_pinger_functions(logger);
@@ -135,13 +136,43 @@ export class Pinger implements dli.IPinger {
     // ******** Public methods for runtime configuration updates
 
     /**
+     * Rebuilds the Prometheus gauges. Call this after configuration changes
+     * to ensure metrics only include current devices.
+     */
+    private rebuildPrometheusGauges(): void {
+        // Clear the registry to remove old gauges before recreating them
+        register.clear();
+
+        // Recreate gauges with fresh state
+        this.prometheus_Pinger_Up_Gauge = new Gauge({
+            name: `pinged`,
+            help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
+            labelNames: ["ip_address", "device_name", "device_type"],
+        });
+
+        this.prometheus_Pinger_Roundtrip_Gauge = new Gauge({
+            name: `pinged_roundtrip_ms`,
+            help: "This indicator (numeric) shows the roundtrip in milliseconds.",
+            labelNames: ["ip_address", "device_name", "device_type"],
+        });
+    }
+
+    /**
      * Updates the configuration at runtime without restarting the service.
      * This allows hot-reloading of the configuration from disk.
      */
     public updateConfig(config: dli.IConfig, config_str: string): void {
         this.configuration = config;
         this.config_str = config_str;
+        this.rebuildPrometheusGauges();
         this.logger.write_info(this.originator + ".updateConfig", `Configuration updated. ${this.configuration.devices.length} devices configured.`);
+    }
+
+    /**
+     * Rebuilds the Prometheus gauges. Public wrapper for IPinger interface.
+     */
+    public rebuildGauges(): void {
+        this.rebuildPrometheusGauges();
     }
 
     // ****************************************************************

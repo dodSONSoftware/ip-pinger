@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { IPingResults } from "./interfaces";
+import type { IPingResults } from "./interfaces";
 
 
 

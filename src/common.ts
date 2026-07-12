@@ -3,13 +3,17 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { IConfig, IDevice } from "./interfaces";
+import type { IConfig, IDevice } from "./interfaces";
 import { readFileSync } from "fs";
 import { z } from "zod";
 import { getEnvironmentVariable } from "./systemFunctions";
 
-// Config file path - defaults to Docker mount point
-const CONFIG_PATH = getEnvironmentVariable("CONFIG_PATH", "/app/dist/config.json");
+// Config file path - must be set via CONFIG_PATH environment variable
+const CONFIG_PATH_ENV = process.env["CONFIG_PATH"];
+if (!CONFIG_PATH_ENV) {
+    throw new Error("CONFIG_PATH environment variable is required but not set.");
+}
+const CONFIG_PATH: string = CONFIG_PATH_ENV;
 
 export function getConfigPath(): string {
     return CONFIG_PATH;
@@ -38,7 +42,6 @@ export function loadConfig(): [IConfig, string] {
         };
 
         // extract primitive fields
-        const docker_container_name = get<string>(data, "docker-container-name");
         const log_level = get<string>(data, "log-level");
         const always_log_errors = get<boolean>(data, "always-log-errors");
         const prometheus_port = get<number>(data, "prometheus-port");
@@ -56,7 +59,6 @@ export function loadConfig(): [IConfig, string] {
         // return the typed config object
         return [
             {
-                docker_container_name,
                 log_level,
                 always_log_errors,
                 prometheus_port,
@@ -81,7 +83,6 @@ const DeviceSchema = z.object({
 });
 
 const ConfigSchema = z.object({
-    "docker-container-name": z.string(),
     "log-level": z.enum(["debug", "info", "warn", "error"]),
     "always-log-errors": z.boolean(),
     "prometheus-port": z.number().int().positive(),

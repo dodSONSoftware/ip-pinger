@@ -1,5 +1,4 @@
 {
-  "docker-container-name": "ip-pinger-2",
   "log-level": "debug",
   "always-log-errors": true,
   "prometheus-port": 9090,

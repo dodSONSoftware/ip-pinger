@@ -18,7 +18,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install all dependencies (including devDependencies for native module compilation)
-RUN npm ci --include=dev
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -30,10 +30,11 @@ RUN npx tsc
 # Stage 2: Production runtime
 FROM node:22-slim
 
-# Install runtime requirements (libcap2-bin for setcap)
+# Install runtime requirements (libcap2-bin for setcap, curl for healthcheck)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libcap2-bin \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -57,6 +58,10 @@ RUN setcap cap_net_raw+ep $(readlink -f $(which node))
 
 # Run as non-root user for better security
 USER node
+
+# Health check - probe the metrics endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -sf http://localhost:9090/metrics || exit 1
 
 # Command to run the application
 CMD ["node", "dist/index.js"]

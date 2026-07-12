@@ -3,12 +3,16 @@
  * SPDX-License-Identifier: MIT
  */
 
-import express from "express";
+import type express from "express";
 import { validateConfig, getConfigPath, loadConfig } from "../common";
-import { ensureError, write_file } from "../systemFunctions";
-import { IDevice, ILogger, IPinger, IPingResults } from "../interfaces";
+import { ensureError, write_file, read_file_json } from "../systemFunctions";
+import type { ILogger, IPinger} from "../interfaces";
+import { IDevice, IPingResults, LogLevel } from "../interfaces";
+import { Logger } from "../Logger";
 import { readFileSync } from "fs";
 import { join } from "path";
+
+// CommonJS provides __dirname automatically
 
 // **** HTTP Status Codes
 
@@ -22,16 +26,20 @@ export const InternalServerError = 500;
 export const Text = "text/plain";
 export const Json = "application/json";
 
+// **** Load package.json for dynamic version
+const packageJsonPath = join(__dirname, "..", "..", "package.json");
+const packageData = read_file_json(packageJsonPath);
+
 // **** STATIC Information
 
 export const aboutInformation: Record<string, any> = {
     about: {
         name: "IP Pinger Service",
-        version: "1.2.0",
+        version: packageData?.get("version") ?? "unknown",
         author: "Randy Dodson (dodsonsoftware@gmail.com)",
         description: "Provides device ping information with hot-reload configuration support.",
-        copyright: "Copyright (c) 2025-2026 dodson Software ( dodson labs )",
-        license: "Licensed under the MIT License with Patent Grant and NOTICE preservation."
+        copyright: "Copyright (c) 2026 dodson Software ( dodson labs )",
+        license: "MIT License"
     },
     commands: {
         "name": "General",
@@ -73,6 +81,7 @@ var configuration: string;
 var configurationObj: Record<string, any>;
 var ip_pinger: IPinger;
 var log_writer: ILogger;
+const originator: string = "generalRoutes";
 
 // ******** CREATE Routes
 
@@ -187,9 +196,26 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      */
     app.route("/read-config").get((req: express.Request, res: express.Response) => {
         try {
-            const configPath = getConfigPath();
-            const rawText = readFileSync(configPath, "utf-8");
-            res.type(Json).status(OK).json(JSON.parse(rawText));
+            // Use loadConfig to properly parse and convert the config
+            const [newConfig, config_text] = loadConfig();
+
+            // Update in-memory cache
+            configuration = config_text;
+            configurationObj = newConfig;
+
+            // Update the running pinger with the new configuration
+            if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
+                ip_pinger.updateConfig(newConfig, config_text);
+            }
+
+            // Log the newly loaded configuration
+            Logger.write_local_log(
+                LogLevel.Info,
+                originator + ".read-config",
+                `Configuration loaded: ${config_text}`
+            );
+
+            res.type(Json).status(OK).json(newConfig);
         } catch (error) {
             res.status(_400).json({ message: `ERROR: Could not read config: ${ensureError(error).message}` });
         }
@@ -209,7 +235,6 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      *             additionalProperties: true
      *             example:
      *               {
-     *                  "docker-container-name": "ip-pinger-2",
      *                  "log-level": "info",
      *                  "always-log-errors": true,
      *                  "prometheus-port": 3300,
@@ -248,8 +273,8 @@ export function createRoutes(app: express.Application, config: string, pinger: I
 
             // check
             if (validData.ok) {
-                // Write to the Docker-mounted config path
-                write_file(getConfigPath(), JSON.parse(JSON.stringify(json_str, null, 2)));
+                // Write to the Docker-mounted config path with formatted JSON
+                write_file(getConfigPath(), JSON.stringify(JSON.parse(json_str), null, 2));
 
                 // Use loadConfig to properly parse and convert the config
                 const [newConfig, config_text] = loadConfig();
@@ -261,6 +286,13 @@ export function createRoutes(app: express.Application, config: string, pinger: I
                 if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
                     ip_pinger.updateConfig(newConfig, config_text);
                 }
+
+                // Log the newly loaded configuration
+                Logger.write_local_log(
+                    LogLevel.Info,
+                    originator + ".write-config",
+                    `Configuration reloaded: ${config_text}`
+                );
 
                 res.status(OK).json({ message: "Valid configuration data received. Configuration saved and hot-reloaded." });
 
@@ -298,6 +330,13 @@ export function createRoutes(app: express.Application, config: string, pinger: I
                 ip_pinger.updateConfig(newConfig, rawText);
             }
 
+            // Log the newly loaded configuration
+            Logger.write_local_log(
+                LogLevel.Info,
+                originator + ".reload-config",
+                `Configuration reloaded: ${rawText}`
+            );
+
             log_writer.write_info("generalRoutes.reload-config", `Configuration reloaded successfully.`);
             res.status(OK).json({ message: "Configuration reloaded successfully." });
 
@@ -334,8 +373,8 @@ async function getPings(devices: Record<string, any>[]): Promise<Record<string, 
             try {
                 // init
                 const source = String(device["source"]);
-                const ip_address = String(device["ip-address"]);
-                const device_type = String(device["device-type"] || "");
+                const ip_address = String(device["ip_address"] ?? device["ip-address"]);
+                const device_type = String(device["device_type"] ?? device["device-type"] ?? "");
 
                 // ping device, add the source and return the results
                 let dude = await getPing(ip_address);
@@ -346,8 +385,8 @@ async function getPings(devices: Record<string, any>[]): Promise<Record<string, 
                 // Return error info with device context preserved
                 return {
                     source: String(device["source"]),
-                    ip_address: String(device["ip-address"]),
-                    device_type: String(device["device-type"] || ""),
+                    ip_address: String(device["ip_address"] ?? device["ip-address"]),
+                    device_type: String(device["device_type"] ?? device["device-type"] ?? ""),
                     is_alive: false,
                     roundtrip_ms: 0,
                     error: ensureError(err).message
