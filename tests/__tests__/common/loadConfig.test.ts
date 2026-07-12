@@ -23,51 +23,51 @@ describe("loadConfig", () => {
         // Create a temporary valid config file
         const fs = require("fs");
         const tempConfig = `
-log-level: debug
-always-log-errors: true
-prometheus-port: 9090
-api-port: 3300
-interval-secs: 30
+logLevel: debug
+alwaysLogErrors: true
+prometheusPort: 9090
+apiPort: 3300
+intervalSecs: 30
 devices:
   - source: Test Device
-    ip-address: "192.168.1.1"
-    device-type: sensor
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
 `;
         fs.writeFileSync("/tmp/test-config.yml", tempConfig);
 
         const [config, configText] = loadConfig();
 
-        expect(config.log_level).toBe("debug");
-        expect(config.always_log_errors).toBe(true);
-        expect(config.prometheus_port).toBe(9090);
-        expect(config.api_port).toBe(3300);
-        expect(config.interval_secs).toBe(30);
+        expect(config.logLevel).toBe("debug");
+        expect(config.alwaysLogErrors).toBe(true);
+        expect(config.prometheusPort).toBe(9090);
+        expect(config.apiPort).toBe(3300);
+        expect(config.intervalSecs).toBe(30);
         expect(config.devices).toHaveLength(1);
         expect(config.devices[0].source).toBe("Test Device");
-        expect(config.devices[0].ip_address).toBe("192.168.1.1");
-        expect(config.devices[0].device_type).toBe("sensor");
+        expect(config.devices[0].ipAddress).toBe("192.168.1.1");
+        expect(config.devices[0].deviceType).toBe("sensor");
 
-        expect(configText).toContain("log-level: debug");
+        expect(configText).toContain("logLevel: debug");
     });
 
     it("should handle multiple devices correctly", () => {
         const fs = require("fs");
         const tempConfig = `
-log-level: info
-always-log-errors: false
-prometheus-port: 9090
-api-port: 3300
-interval-secs: 60
+logLevel: info
+alwaysLogErrors: false
+prometheusPort: 9090
+apiPort: 3300
+intervalSecs: 60
 devices:
   - source: Device 1
-    ip-address: "192.168.1.1"
-    device-type: sensor
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
   - source: Device 2
-    ip-address: "192.168.1.2"
-    device-type: controller
+    ipAddress: "192.168.1.2"
+    deviceType: controller
   - source: Device 3
-    ip-address: "192.168.1.3"
-    device-type: kiosk
+    ipAddress: "192.168.1.3"
+    deviceType: kiosk
 `;
         fs.writeFileSync("/tmp/test-config.yml", tempConfig);
 
@@ -83,30 +83,30 @@ devices:
 describe("validateConfig", () => {
     it("should return ok=true for valid YAML", () => {
         const yaml = `
-log-level: debug
-always-log-errors: true
-prometheus-port: 9090
-api-port: 3300
-interval-secs: 30
+logLevel: debug
+alwaysLogErrors: true
+prometheusPort: 9090
+apiPort: 3300
+intervalSecs: 30
 devices:
   - source: Test
-    ip-address: "192.168.1.1"
-    device-type: sensor
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
 `;
 
         const result = validateConfig(yaml);
 
         expect(result.ok).toBe(true);
         if (result.ok) {
-            // Note: validateConfig returns the raw Zod schema data with kebab-case keys
-            expect(result.data["log-level"]).toBe("debug");
+            // Note: validateConfig returns the raw Zod schema data with camelCase keys
+            expect(result.data.logLevel).toBe("debug");
             expect(result.data.devices).toHaveLength(1);
         }
     });
 
     it("should return ok=false for invalid YAML syntax", () => {
         const invalidYaml = `
-log-level: debug
+logLevel: debug
   invalid indentation
 - missing key: value
 `;
@@ -121,37 +121,37 @@ log-level: debug
 
     it("should return validation errors for invalid data", () => {
         const invalidData = `
-log-level: invalid-level
-always-log-errors: true
-prometheus-port: 9090
-api-port: 3300
-interval-secs: 30
+logLevel: invalid-level
+alwaysLogErrors: true
+prometheusPort: 9090
+apiPort: 3300
+intervalSecs: 30
 devices:
   - source: Test
-    ip-address: "not-an-ip"
-    device-type: sensor
+    ipAddress: "not-an-ip"
+    deviceType: sensor
 `;
 
         const result = validateConfig(invalidData);
 
         expect(result.ok).toBe(false);
         if (!result.ok) {
-            // Should have errors for invalid log-level and invalid IP
+            // Should have errors for invalid logLevel and invalid IP
             expect(result.errors.length).toBeGreaterThan(0);
         }
     });
 
     it("should reject invalid device types", () => {
         const invalidDeviceType = `
-log-level: debug
-always-log-errors: true
-prometheus-port: 9090
-api-port: 3300
-interval-secs: 30
+logLevel: debug
+alwaysLogErrors: true
+prometheusPort: 9090
+apiPort: 3300
+intervalSecs: 30
 devices:
   - source: Test
-    ip-address: "192.168.1.1"
-    device-type: invalid-type
+    ipAddress: "192.168.1.1"
+    deviceType: invalid-type
 `;
 
         const result = validateConfig(invalidDeviceType);
@@ -161,21 +161,21 @@ devices:
 
     it("should accept all valid device types", () => {
         const validTypes = `
-log-level: debug
-always-log-errors: true
-prometheus-port: 9090
-api-port: 3300
-interval-secs: 30
+logLevel: debug
+alwaysLogErrors: true
+prometheusPort: 9090
+apiPort: 3300
+intervalSecs: 30
 devices:
   - source: Sensor
-    ip-address: "192.168.1.1"
-    device-type: sensor
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
   - source: Controller
-    ip-address: "192.168.1.2"
-    device-type: controller
+    ipAddress: "192.168.1.2"
+    deviceType: controller
   - source: Kiosk
-    ip-address: "192.168.1.3"
-    device-type: kiosk
+    ipAddress: "192.168.1.3"
+    deviceType: kiosk
 `;
 
         const result = validateConfig(validTypes);

@@ -26,16 +26,16 @@ const ipRegex = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 
 const DeviceSchema = z.object({
     source: z.string(),
-    "ip-address": z.string().regex(ipRegex, "Invalid IP address"),
-    "device-type": z.enum(["sensor", "controller", "kiosk"]),
+    ipAddress: z.string().regex(ipRegex, "Invalid IP address"),
+    deviceType: z.enum(["sensor", "controller", "kiosk"]),
 });
 
 const ConfigSchema = z.object({
-    "log-level": z.enum(["debug", "info", "warn", "error"]),
-    "always-log-errors": z.boolean(),
-    "prometheus-port": z.number().int().positive(),
-    "api-port": z.number().int().positive(),
-    "interval-secs": z.number().int().positive(),
+    logLevel: z.enum(["debug", "info", "warn", "error"]),
+    alwaysLogErrors: z.boolean(),
+    prometheusPort: z.number().int().positive(),
+    apiPort: z.number().int().positive(),
+    intervalSecs: z.number().int().positive(),
     devices: z.array(DeviceSchema),
 });
 
@@ -43,6 +43,10 @@ const ConfigSchema = z.object({
 export type Device = z.infer<typeof DeviceSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
+/**
+ * Validates YAML configuration string against the schema.
+ * @param yaml - Raw YAML configuration string
+ */
 export function validateConfig(yaml: string): { ok: true; data: Config } | { ok: false; errors: string[] } {
     let parsed: unknown;
     try {
@@ -51,18 +55,7 @@ export function validateConfig(yaml: string): { ok: true; data: Config } | { ok:
         return { ok: false, errors: ["Invalid YAML format."] };
     }
 
-    const result = ConfigSchema.safeParse(parsed);
-    if (result.success) {
-        return { ok: true, data: result.data };
-    }
-
-    // Collect readable error messages
-    const errors = result.error.issues.map((err) => {
-        const path = err.path.length ? `(${err.path.join(" → ")})` : "";
-        return `${err.message} ${path}`.trim();
-    });
-
-    return { ok: false, errors };
+    return validateParsedConfig(parsed as Record<string, unknown>);
 }
 
 /**
@@ -96,50 +89,37 @@ export function loadConfig(logger?: ILogger): [IConfig, string] {
         // parse the YAML – this gives a plain object
         const data = load(rawText) as Record<string, unknown>;
 
-        // validate
-        if (!validateConfig(rawText).ok) {
+        // validate using the pre-parsed data
+        const validation = validateParsedConfig(data);
+        if (!validation.ok) {
             // invalid yaml
-            throw new Error(`Invalid configuration.`);
+            throw new Error(`Invalid configuration: ${validation.errors.join("; ")}`);
         }
 
-        // helper to assert a property exists and has the expected type
-        const get = <T>(obj: Record<string, unknown>, key: string): T => {
-            if (!(key in obj)) {
-                throw new Error(`Missing config key: ${key}`);
-            }
-            return obj[key] as T;
-        };
-
-        // extract primitive fields
-        const log_level = get<string>(data, "log-level");
-        const always_log_errors = get<boolean>(data, "always-log-errors");
-        const prometheus_port = get<number>(data, "prometheus-port");
-        const api_port = get<number>(data, "api-port");
-        const interval_secs = get<number>(data, "interval-secs");
-
-        // convert the raw devices array to IDevice[]
-        const rawDevices = get<any[]>(data, "devices");
-        const devices: IDevice[] = rawDevices.map((d) => ({
-            source: d.source,
-            ip_address: d["ip-address"],
-            device_type: d["device-type"],
-        }));
-
-        // return the typed config object
-        return [
-            {
-                log_level,
-                always_log_errors,
-                prometheus_port,
-                api_port,
-                interval_secs,
-                devices,
-            },
-            rawText,
-        ];
+        // return the typed config object (now uses camelCase directly)
+        return [validation.data as IConfig, rawText];
     } catch (err) {
         const error = ensureError(err);
         effectiveLogger.write_error("common::loadConfig()", `Error loading configuration: ${error.message}`);
         throw error;
     }
+}
+
+/**
+ * Validates parsed configuration data against the schema.
+ * @param data - Parsed configuration data (already loaded from YAML)
+ */
+export function validateParsedConfig(data: Record<string, unknown>): { ok: true; data: Config } | { ok: false; errors: string[] } {
+    const result = ConfigSchema.safeParse(data);
+    if (result.success) {
+        return { ok: true, data: result.data };
+    }
+
+    // Collect readable error messages with full paths
+    const errors = result.error.issues.map((err) => {
+        const path = err.path.length ? ` (${err.path.join(".")})` : "";
+        return `${err.message}${path}`.trim();
+    });
+
+    return { ok: false, errors };
 }

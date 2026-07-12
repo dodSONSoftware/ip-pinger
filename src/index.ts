@@ -13,7 +13,6 @@ import { read_file_json } from "./systemFunctions";
 // ******** global variables
 
 const originator: string = "index";
-let config: Map<string, any> | null = new Map<string, any>();
 let logger: Logger;
 let pinger_dude: interfaces.IPinger;
 
@@ -24,7 +23,6 @@ const appName = packageData?.get("name") ?? "Unknown App";
 const appVersion = packageData?.get("version") ?? "unknown";
 
 // ******** log the boot-up
-//console.log(`>>>>>>>> Booting the IP Pinger Application at [${sysFunc.get_timestamp(false)}]`);
 Logger.write_local_log(interfaces.LogLevel.Info, "boot", `Booting ${appName} v${appVersion}.`);
 
 // ******** local functions

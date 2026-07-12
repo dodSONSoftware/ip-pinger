@@ -31,7 +31,7 @@ describe("write_file", () => {
 
         const result = write_file(filePath, content);
 
-        expect(result).toBe(true);
+        expect(result.success).toBe(true);
         expect(fs.readFileSync(filePath, "utf8")).toBe(content);
     });
 
@@ -44,7 +44,7 @@ describe("write_file", () => {
 
         const result = write_file(filePath, newContent);
 
-        expect(result).toBe(true);
+        expect(result.success).toBe(true);
         expect(fs.readFileSync(filePath, "utf8")).toBe(newContent);
     });
 
@@ -52,7 +52,7 @@ describe("write_file", () => {
         const filePath = "/nonexistent-directory/test.txt";
         const result = write_file(filePath, "test");
 
-        expect(result).toBe(false);
+        expect(result.success).toBe(false);
     });
 });
 

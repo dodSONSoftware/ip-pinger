@@ -6,12 +6,12 @@
 import type express from "express";
 import { validateConfig, getConfigPath, loadConfig } from "../common";
 import { ensureError, write_file, read_file_json } from "../systemFunctions";
-import type { ILogger, IPinger} from "../interfaces";
-import { IDevice, IPingResults, LogLevel } from "../interfaces";
+import type { ILogger, IPinger, IConfig, IDevice } from "../interfaces";
+import { IPingResults, LogLevel } from "../interfaces";
 import { Logger } from "../Logger";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { dump, load } from "js-yaml";
+import { dump } from "js-yaml";
 
 // CommonJS provides __dirname automatically
 
@@ -33,10 +33,39 @@ const packageData = read_file_json(packageJsonPath, { global_log_level: () => 0,
 
 // **** STATIC Information
 
-export const aboutInformation: Record<string, any> = {
+type CommandHelp = {
+    route: string;
+    description: string;
+};
+
+type HelpInfo = {
+    description: string;
+    commands: CommandHelp[];
+};
+
+type CommandsInfo = {
+    name: string;
+    help: HelpInfo;
+};
+
+type AboutInfo = {
+    name: string;
+    version: string;
+    author: string;
+    description: string;
+    copyright: string;
+    license: string;
+};
+
+type AboutInformation = {
+    about: AboutInfo;
+    commands: CommandsInfo;
+};
+
+export const aboutInformation: AboutInformation = {
     about: {
         name: "IP Pinger Service",
-        version: packageData?.get("version") ?? "unknown",
+        version: (packageData?.get("version") as string) ?? "unknown",
         author: "Randy Dodson (dodsonsoftware@gmail.com)",
         description: "Provides device ping information with hot-reload configuration support.",
         copyright: "Copyright (c) 2026 dodson Software ( dodson labs )",
@@ -79,17 +108,27 @@ export const aboutInformation: Record<string, any> = {
 // **** PRIVATE Variables
 
 var configuration: string;
-var configurationObj: Record<string, any>;
+var configurationObj: IConfig;
 var ip_pinger: IPinger;
 var log_writer: ILogger;
 const originator: string = "generalRoutes";
 
+// Define types for ping results
+interface PingResult {
+    ipAddress: string;
+    isAlive: boolean;
+    roundTripMs: number;
+    source?: string;
+    deviceType?: string;
+    error?: string;
+}
+
 // ******** CREATE Routes
 
-export function createRoutes(app: express.Application, config: string, pinger: IPinger, logger: ILogger) {
+export function createRoutes(app: express.Application, config: IConfig, config_str: string, pinger: IPinger, logger: ILogger) {
     // **** initialize
-    configuration = config;
-    configurationObj = load(config) as Record<string, any>;
+    configuration = config_str;
+    configurationObj = config;
     ip_pinger = pinger;
     log_writer = logger;
 
@@ -136,7 +175,9 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      *                   type: string
      */
     app.route("/ping").get(async (req: express.Request, res: express.Response) => {
-        const devices = configurationObj["devices"];
+        // configurationObj is now IConfig which has devices: IDevice[]
+        // So we can safely access it without additional runtime checks
+        const devices = configurationObj.devices;
         const results = await getPings(devices);
         res.type("application/json").status(OK).json(results);
     });
@@ -162,13 +203,13 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      *             schema:
      *               type: object
      *               properties:
-     *                 ip_address:
+     *                 ipAddress:
      *                   type: string
      *                   example: "192.168.1.1"
-     *                 is_alive:
+     *                 isAlive:
      *                   type: boolean
      *                   example: true
-     *                 roundtrip_ms:
+     *                 roundtripMs:
      *                   type: number
      *                   example: 45
      */
@@ -236,15 +277,15 @@ export function createRoutes(app: express.Application, config: string, pinger: I
      *             additionalProperties: true
      *             example:
      *               {
-     *                  "log-level": "info",
-     *                  "always-log-errors": true,
-     *                  "prometheus-port": 3300,
-     *                  "interval-secs": 30,
+     *                  "logLevel": "info",
+     *                  "alwaysLogErrors": true,
+     *                  "prometheusPort": 3300,
+     *                  "intervalSecs": 30,
      *                  "devices": [
      *                      {
      *                          "source": "S1: Inside",
-     *                          "ip-address": "192.168.7.59",
-     *                          "device-type": "sensor"
+     *                          "ipAddress": "192.168.7.59",
+     *                          "deviceType": "sensor"
      *                      }
      *                  ]
      *              }
@@ -348,7 +389,7 @@ export function createRoutes(app: express.Application, config: string, pinger: I
                 `Configuration reloaded: ${rawText}`
             );
 
-            log_writer?.write_info("generalRoutes.reload-config", `Configuration reloaded successfully.`);
+            log_writer.write_info("generalRoutes.reload-config", `Configuration reloaded successfully.`);
             res.status(OK).json({ message: "Configuration reloaded successfully." });
 
         } catch (error) {
@@ -365,48 +406,49 @@ function getAbout() {
     return aboutInformation;
 }
 
-async function getPing(ip_address: string): Promise<Record<string, any>> {
+async function getPing(ipAddress: string): Promise<PingResult> {
     // ping device
-    const [is_alive, round_trip_ms] = await ip_pinger.ping_device(ip_address);
+    const [isAlive, roundTripMs] = await ip_pinger.ping_device(ipAddress);
 
     // return results
     return {
-        "ip_address": ip_address,
-        "is_alive": is_alive,
-        "roundtrip_ms": round_trip_ms
+        ipAddress,
+        isAlive,
+        roundTripMs
     };
 }
 
-async function getPings(devices: Record<string, any>[]): Promise<Record<string, any>> {
+async function getPings(devices: IDevice[]): Promise<PingResult[]> {
     // iterate thru each device in devices
-    const results: any[] = await Promise.allSettled(
+    const results: PromiseSettledResult<PingResult>[] = await Promise.allSettled(
         devices.map(async (device) => {
             try {
                 // init
-                const source = String(device["source"]);
-                const ip_address = String(device["ip_address"] ?? device["ip-address"]);
-                const device_type = String(device["device_type"] ?? device["device-type"] ?? "");
+                const source = String(device.source);
+                const ipAddress = String(device.ipAddress);
+                const deviceType = String(device.deviceType);
 
                 // ping device, add the source and return the results
-                let dude = await getPing(ip_address);
-                dude["source"] = source;
-                dude["device_type"] = device_type;
+                let dude = await getPing(ipAddress);
+                dude.source = source;
+                dude.deviceType = deviceType;
                 return dude;
             } catch (err) {
                 // Return error info with device context preserved
                 return {
-                    source: String(device["source"]),
-                    ip_address: String(device["ip_address"] ?? device["ip-address"]),
-                    device_type: String(device["device_type"] ?? device["device-type"] ?? ""),
-                    is_alive: false,
-                    roundtrip_ms: 0,
+                    source: String(device.source),
+                    ipAddress: String(device.ipAddress),
+                    deviceType: String(device.deviceType),
+                    isAlive: false,
+                    roundTripMs: 0,
                     error: ensureError(err).message
                 };
             }
         })
     );
 
-    // All results are now fulfilled (Promise.allSettled guarantees this),
-    // so we can just return the array directly
-    return results;
+    // Extract the value from each fulfilled result (or reason if rejected)
+    return results.map(result =>
+        result.status === 'fulfilled' ? result.value : result.reason
+    );
 }

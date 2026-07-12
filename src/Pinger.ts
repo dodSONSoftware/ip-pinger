@@ -11,6 +11,7 @@ import express from "express";
 import bodyParser from "body-parser";
 import { setupSwagger } from "./swagger";
 import { createRoutes } from "./routes/generalRoutes";
+import type { Session } from "net-ping";
 const netPing = require("net-ping");
 const cors = require("cors");
 
@@ -25,8 +26,8 @@ export class Pinger implements dli.IPinger {
     private configuration: dli.IConfig;
     private readonly logger: dli.ILogger;
     // ----
-    private readonly ip_pinger: any;
-    private readonly express: any;
+    private readonly ip_pinger: Session;
+    private readonly express: express.Application;
     // ----
     private prometheus_Pinger_Up_Gauge: Gauge;
     private prometheus_Pinger_Roundtrip_Gauge: Gauge;
@@ -48,14 +49,14 @@ export class Pinger implements dli.IPinger {
         this.prometheus_Pinger_Up_Gauge = new Gauge({
             name: `pinged`,
             help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
-            labelNames: ["ip_address", "device_name", "device_type"],
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
         });
 
         // create a gauge for device
         this.prometheus_Pinger_Roundtrip_Gauge = new Gauge({
             name: `pinged_roundtrip_ms`,
             help: "This indicator (numeric) shows the roundtrip in milliseconds.",
-            labelNames: ["ip_address", "device_name", "device_type"],
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
         });
 
         // ******** SETUP EXPRESS
@@ -64,7 +65,7 @@ export class Pinger implements dli.IPinger {
         this.express = express();
 
         // create endpoint for Prometheus to scrape metrics
-        this.express.get("/metrics", async (req: any, res: any) => {
+        this.express.get("/metrics", async (req: express.Request, res: express.Response) => {
             res.set("Content-Type", register.contentType);
             res.end(await register.metrics());
         });
@@ -76,24 +77,24 @@ export class Pinger implements dli.IPinger {
         this.express.use(bodyParser.json());
 
         // add a simple request logger
-        this.express.use((req: Request, res: Response, next: NextFunction) => {
+        this.express.use((req: express.Request, res: express.Response, next: NextFunction) => {
             this.logger.write_debug(this.originator, `${req.method} ${req.url}`);
             next();
         });
 
         // ******** SETUP ROUTES
 
-        createRoutes(this.express, this.config_str, this, this.logger);
+        createRoutes(this.express, this.configuration, this.config_str, this, this.logger);
 
         // ******** SETUP SWAGGER
 
-        setupSwagger(this.express);
+        setupSwagger(this.express as express.Express);
 
         // start the express server on prometheus port
-        const promServer = this.express.listen(this.configuration.prometheus_port, () => {
+        const promServer = this.express.listen(this.configuration.prometheusPort, () => {
             // log-it
-            this.logger.write_info(this.originator + ".ctor", `Express Server, for Prometheus, is running at http://localhost:${this.configuration.prometheus_port}`);
-            this.logger.write_info(this.originator + ".ctor", `Prometheus metrics can be found at http://localhost:${this.configuration.prometheus_port}/metrics`);
+            this.logger.write_info(this.originator + ".ctor", `Express Server, for Prometheus, is running at http://localhost:${this.configuration.prometheusPort}`);
+            this.logger.write_info(this.originator + ".ctor", `Prometheus metrics can be found at http://localhost:${this.configuration.prometheusPort}/metrics`);
         });
 
         promServer.on('error', (err: Error) => {
@@ -101,8 +102,8 @@ export class Pinger implements dli.IPinger {
         });
 
         // Also listen on API port for HTTP API endpoints
-        const apiServer = this.express.listen(this.configuration.api_port, () => {
-            this.logger.write_info(this.originator + ".ctor", `API Server is running at http://localhost:${this.configuration.api_port}`);
+        const apiServer = this.express.listen(this.configuration.apiPort, () => {
+            this.logger.write_info(this.originator + ".ctor", `API Server is running at http://localhost:${this.configuration.apiPort}`);
         });
 
         apiServer.on('error', (err: Error) => {
@@ -129,7 +130,7 @@ export class Pinger implements dli.IPinger {
 
         const msg = `Pinger class initialized. ${this.configuration.devices.length} Devices.`;
         logger.write_info(this.originator + ".ctor", msg);
-        logger.write_info(this.originator + ".ctor", `Ping Interval Cycle: ${this.configuration.interval_secs} seconds.`);
+        logger.write_info(this.originator + ".ctor", `Ping Interval Cycle: ${this.configuration.intervalSecs} seconds.`);
     } // end-constructor
 
     // ****************************************************************
@@ -147,13 +148,13 @@ export class Pinger implements dli.IPinger {
         this.prometheus_Pinger_Up_Gauge = new Gauge({
             name: `pinged`,
             help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
-            labelNames: ["ip_address", "device_name", "device_type"],
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
         });
 
         this.prometheus_Pinger_Roundtrip_Gauge = new Gauge({
             name: `pinged_roundtrip_ms`,
             help: "This indicator (numeric) shows the roundtrip in milliseconds.",
-            labelNames: ["ip_address", "device_name", "device_type"],
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
         });
     }
 
@@ -209,11 +210,11 @@ export class Pinger implements dli.IPinger {
             // process results
             for (const ping_result of all_ping_results) {
                 // separate results
-                const ip_address = String(ping_result[0]);
-                const device_name = String(ping_result[1]);
-                const device_type = String(ping_result[2]);
-                const is_alive = Number(ping_result[3]);
-                const roundtrip_ms = Number(ping_result[4]);
+                const ipAddress = String(ping_result[0]);
+                const deviceName = String(ping_result[1]);
+                const deviceType = String(ping_result[2]);
+                const isAlive = Number(ping_result[3]);
+                const roundtripMs = Number(ping_result[4]);
 
                 // ******** process prometheus metrics
 
@@ -222,18 +223,18 @@ export class Pinger implements dli.IPinger {
                     // set gauge
                     this.prometheus_Pinger_Up_Gauge.set(
                         {
-                            ip_address: `${ip_address}`,
-                            device_name: `${device_name}`,
-                            device_type: `${device_type}`
+                            ipAddress: `${ipAddress}`,
+                            deviceName: `${deviceName}`,
+                            deviceType: `${deviceType}`
                         },
-                        is_alive
+                        isAlive
                     );
 
                     // log-it
-                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ is_alive: ${Boolean(is_alive)}, device_name: ${device_name}, device_type: ${device_type}, ip_address: ${ip_address} ].`, start_date);
+                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ isAlive: ${Boolean(isAlive)}, deviceName: ${deviceName}, deviceType: ${deviceType}, ipAddress: ${ipAddress} ].`, start_date);
                 } else {
                     // log-it
-                    this.logger.write_warn(this.originator + ".run", `Gauge Set; Gauge (Pinger_Gauge) not found: [ ${ip_address}, ${device_name} ]`, start_date);
+                    this.logger.write_warn(this.originator + ".run", `Gauge Set; Gauge (Pinger_Gauge) not found: [ ${ipAddress}, ${deviceName} ]`, start_date);
                 }
 
                 // check-it
@@ -241,18 +242,18 @@ export class Pinger implements dli.IPinger {
                     // set gauge
                     this.prometheus_Pinger_Roundtrip_Gauge.set(
                         {
-                            ip_address: `${ip_address}`,
-                            device_name: `${device_name}`,
-                            device_type: `${device_type}`
+                            ipAddress: `${ipAddress}`,
+                            deviceName: `${deviceName}`,
+                            deviceType: `${deviceType}`
                         },
-                        roundtrip_ms
+                        roundtripMs
                     );
 
                     // log-it
-                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ roundtrip_ms: ${Number(roundtrip_ms)}, device_name: ${device_name}, ip_address: ${ip_address} ].`, start_date);
+                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ roundtripMs: ${Number(roundtripMs)}, deviceName: ${deviceName}, ipAddress: ${ipAddress} ].`, start_date);
                 } else {
                     // log-it
-                    this.logger.write_warn(this.originator + ".run", `Gauge Set; Gauge (Pinger_Roundtrip_Gauge) not found: [ ${ip_address}, ${device_name} ]`, start_date);
+                    this.logger.write_warn(this.originator + ".run", `Gauge Set; Gauge (Pinger_Roundtrip_Gauge) not found: [ ${ipAddress}, ${deviceName} ]`, start_date);
                 }
             }
 
@@ -260,35 +261,35 @@ export class Pinger implements dli.IPinger {
             this.logger.write_debug(this.originator + ".run", `PINGING COMPLETE. ${this.configuration.devices.length} devices pinged.`, start_date);
 
             // wait-for-it
-            await sleep_from_start(this.configuration.interval_secs * 1000, start_date);
+            await sleep_from_start(this.configuration.intervalSecs * 1000, start_date);
         }
     } // end-run
 
-    public async ping_device(ip_address: string): Promise<[boolean, number]> {
+    public async ping_device(ipAddress: string): Promise<[boolean, number]> {
         // capture variables
         const logger = this.logger;
         const originator = this.originator;
 
         return new Promise<[boolean, number]>((resolve) => {
             // ping-it
-            this.ip_pinger.pingHost(ip_address, (error: Error | null, target: string, sent: Date, received: Date) => {
+            this.ip_pinger.pingHost(ipAddress, (error: Error | null, target: string, sent: Date, received: Date) => {
                 // check
                 if (error !== null) {
                     // ping error
-                    logger.write_error(`${originator}.ping_device`, `"${ip_address}" Device Error, ${ip_address}, ${error}`);
+                    logger.write_error(`${originator}.ping_device`, `"${ipAddress}" Device Error, ${ipAddress}, ${error}`);
 
                     // Resolve with false
                     resolve([false, 0]);
 
                 } else {
                     // calculate ping round-trip
-                    const round_trip_ms = received.getTime() - sent.getTime();
+                    const roundTripMs = received.getTime() - sent.getTime();
 
                     // ping successful
-                    logger.write_debug(`${originator}.ping_device`, `"${ip_address}" Device Alive, ${round_trip_ms}ms.  [target]=${target}`);
+                    logger.write_debug(`${originator}.ping_device`, `"${ipAddress}" Device Alive, ${roundTripMs}ms.  [target]=${target}`);
 
                     // Resolve with true
-                    resolve([true, round_trip_ms]);
+                    resolve([true, roundTripMs]);
                 }
             });
         });
@@ -308,9 +309,10 @@ export class Pinger implements dli.IPinger {
         });
 
         // log error
-        this.ip_pinger.on("error", function (error: any) {
+        this.ip_pinger.on("error", function (error: Error) {
             // log-it
-            logger.write_error(`${originator}.setup_net_pinger_functions`, error);
+            const errorMsg = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
+            logger.write_error(`${originator}.setup_net_pinger_functions`, errorMsg);
 
             // close-it
             net_pinger.close();
@@ -327,17 +329,17 @@ export class Pinger implements dli.IPinger {
 
         return new Promise<[string, string, string, boolean, number]>((resolve) => {
             // ping-it
-            this.ip_pinger.pingHost(device.ip_address, (error: Error | null, target: string, sent: Date, received: Date) => {
+            this.ip_pinger.pingHost(device.ipAddress, (error: Error | null, target: string, sent: Date, received: Date) => {
                 // check
                 if (error !== null) {
                     // Resolve with false
-                    resolve([device.ip_address, device.source, device.device_type, false, 0]);
+                    resolve([device.ipAddress, device.source, device.deviceType, false, 0]);
                 } else {
                     // calculate ping round-trip
-                    const round_trip_ms = received.getTime() - sent.getTime();
+                    const roundTripMs = received.getTime() - sent.getTime();
 
                     // Resolve with true
-                    resolve([device.ip_address, device.source, device.device_type, true, round_trip_ms]);
+                    resolve([device.ipAddress, device.source, device.deviceType, true, roundTripMs]);
                 }
             });
         });

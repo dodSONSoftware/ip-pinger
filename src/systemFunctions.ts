@@ -10,8 +10,9 @@ import { LogLevel } from "./interfaces";
 
 // **** environment variables functions
 
-export function getEnvironmentVariable(name: string, defaultValue: any): any {
-    return process.env[name]?.valueOf() ?? defaultValue;
+export function getEnvironmentVariable<T = string>(name: string, defaultValue: T): T {
+    const value = process.env[name];
+    return value !== undefined ? (value as T) : defaultValue;
 }
 
 // **** error functions
@@ -58,11 +59,12 @@ export function read_file(filename: string, logger?: ILogger): string | null {
     }
 }
 
-export function read_file_json(filename: string, logger?: ILogger): Map<string, any> | null {
+export function read_file_json(filename: string, logger?: ILogger): Map<string, unknown> | null {
     try {
         const data = read_file(filename, logger);
         if (data != null) {
-            return new Map<string, any>(Object.entries(JSON.parse(data)));
+            const parsed = JSON.parse(data) as Record<string, unknown>;
+            return new Map<string, unknown>(Object.entries(parsed));
         }
         return null;
     } catch (error) {
@@ -126,7 +128,12 @@ export function sleep(delayMS: number): Promise<void> {
 }
 
 export function sleep_from_start(delayMS: number, start: Date): Promise<void> {
-    return sleep(delayMS - (new Date().getTime() - start.getTime()));
+    const elapsed = new Date().getTime() - start.getTime();
+    const remaining = delayMS - elapsed;
+    if (remaining <= 0) {
+        return Promise.resolve(); // Already past the deadline
+    }
+    return sleep(remaining);
 }
 
 // **** general functions

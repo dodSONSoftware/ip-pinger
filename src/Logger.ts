@@ -21,27 +21,27 @@ export class Logger implements ILogger {
 
     constructor(config: IConfig) {
         // get global log level
-        this.global_log_level_value = sysFunc.convert_from_log_level_string_to_enum(config.log_level);
-        this.global_log_level_name = sysFunc.convert_from_log_level_enum_to_string(this.global_log_level_value);
-        this.global_always_log_errors = Boolean(config.always_log_errors);
+        this.globalLogLevelValue = sysFunc.convert_from_log_level_string_to_enum(config.logLevel);
+        this.globalLogLevelName = sysFunc.convert_from_log_level_enum_to_string(this.globalLogLevelValue);
+        this.globalAlwaysLogErrors = Boolean(config.alwaysLogErrors);
     }
 
     // ********
     // ******** private properties
 
-    private readonly global_log_level_value: LogLevel = LogLevel.None;
-    private readonly global_log_level_name: string = "";
-    private readonly global_always_log_errors: boolean = false;
+    private readonly globalLogLevelValue: LogLevel = LogLevel.None;
+    private readonly globalLogLevelName: string = "";
+    private readonly globalAlwaysLogErrors: boolean = false;
 
     // ********
     // ******** ILogger functions
 
     global_log_level(): LogLevel {
-        return this.global_log_level_value;
+        return this.globalLogLevelValue;
     }
 
     global_log_level_string(): string {
-        return this.global_log_level_name;
+        return this.globalLogLevelName;
     }
 
     write_debug(originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
@@ -90,7 +90,7 @@ export class Logger implements ILogger {
 
     private _canLog(logLevel: LogLevel): boolean {
         // check for an auto-error
-        if (this.global_always_log_errors && logLevel === LogLevel.Error) {
+        if (this.globalAlwaysLogErrors && logLevel === LogLevel.Error) {
             return true;
         }
 

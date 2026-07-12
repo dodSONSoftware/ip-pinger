@@ -89,16 +89,17 @@ export interface IPingResults {
 }
 
 export interface IConfig {
-    log_level: string;
-    always_log_errors: boolean;
-    prometheus_port: number;
-    api_port: number;
-    interval_secs: number;
+    [key: string]: unknown;
+    logLevel: string;
+    alwaysLogErrors: boolean;
+    prometheusPort: number;
+    apiPort: number;
+    intervalSecs: number;
     devices: IDevice[];
 }
 
 export interface IDevice {
     source: string;
-    ip_address: string;
-    device_type: string;
+    ipAddress: string;
+    deviceType: string;
 }

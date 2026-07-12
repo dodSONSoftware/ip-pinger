@@ -33,11 +33,11 @@ declare module 'net-ping' {
         close(): void;
 
         on(event: 'close', listener: () => void): this;
-        on(event: 'error', listener: (error: any) => void): this;
+        on(event: 'error', listener: (error: Error) => void): this;
     }
 
     function createSession(options: SessionOptions): Session;
-    const NetworkProtocol: typeof import('./index').NetworkProtocol;
+    const NetworkProtocol: typeof NetworkProtocol;
 
     export default {
         createSession,
