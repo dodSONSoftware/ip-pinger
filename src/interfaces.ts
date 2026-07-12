@@ -22,6 +22,55 @@ export interface ILogger {
     write_debug(originator: string, message: string, start_date?: Date): void;
 }
 
+/**
+ * A minimal console-based logger for bootstrap scenarios before full config loading.
+ */
+export class ConsoleLogger implements ILogger {
+    private readonly logLevel: LogLevel;
+
+    constructor(minLogLevel: LogLevel = LogLevel.Info) {
+        this.logLevel = minLogLevel;
+    }
+
+    global_log_level(): LogLevel {
+        return this.logLevel;
+    }
+
+    global_log_level_string(): string {
+        switch (this.logLevel) {
+            case LogLevel.Debug: return "Debug";
+            case LogLevel.Info: return "Info";
+            case LogLevel.Warn: return "Warn";
+            case LogLevel.Error: return "Error";
+            default: return "None";
+        }
+    }
+
+    write_info(originator: string, message: string, start_date?: Date): void {
+        if (this.logLevel <= LogLevel.Info) {
+            console.log(`[INFO][${originator}] ${message}`);
+        }
+    }
+
+    write_warn(originator: string, message: string, start_date?: Date): void {
+        if (this.logLevel <= LogLevel.Warn) {
+            console.warn(`[WARN][${originator}] ${message}`);
+        }
+    }
+
+    write_error(originator: string, message: string, start_date?: Date): void {
+        if (this.logLevel <= LogLevel.Error) {
+            console.error(`[ERROR][${originator}] ${message}`);
+        }
+    }
+
+    write_debug(originator: string, message: string, start_date?: Date): void {
+        if (this.logLevel <= LogLevel.Debug) {
+            console.debug(`[DEBUG][${originator}] ${message}`);
+        }
+    }
+}
+
 // **** Pinger
 
 export interface IPinger {

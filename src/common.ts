@@ -72,7 +72,7 @@ export function validateConfig(yaml: string): { ok: true; data: Config } | { ok:
 /**
  * A no-op logger implementation for cases where logging is not needed
  */
-class NoOpLogger implements ILogger {
+export class NoOpLogger implements ILogger {
     global_log_level(): LogLevel {
         return LogLevel.None;
     }

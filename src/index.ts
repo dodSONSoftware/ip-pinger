@@ -33,8 +33,11 @@ function initialize() {
     // init
     const start_date = new Date();
 
-    // read configurations
-    const [configuration, config_str] = loadConfig();
+    // Create a console logger first for bootstrap errors
+    const bootstrapLogger = new interfaces.ConsoleLogger(interfaces.LogLevel.Error);
+
+    // read configurations - pass bootstrap logger so errors are logged
+    const [configuration, config_str] = loadConfig(bootstrapLogger);
 
     // initialize logger first
     logger = new Logger(configuration);

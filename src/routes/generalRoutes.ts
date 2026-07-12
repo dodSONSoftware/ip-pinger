@@ -29,7 +29,7 @@ export const Json = "application/json";
 
 // **** Load package.json for dynamic version
 const packageJsonPath = join(__dirname, "..", "..", "package.json");
-const packageData = read_file_json(packageJsonPath, undefined);
+const packageData = read_file_json(packageJsonPath, { global_log_level: () => 0, global_log_level_string: () => "Console", write_info: () => {}, write_warn: () => {}, write_error: (o, m) => console.error(`[${o}] ${m}`), write_debug: () => {} });
 
 // **** STATIC Information
 
@@ -81,12 +81,12 @@ export const aboutInformation: Record<string, any> = {
 var configuration: string;
 var configurationObj: Record<string, any>;
 var ip_pinger: IPinger;
-var log_writer: ILogger | undefined;
+var log_writer: ILogger;
 const originator: string = "generalRoutes";
 
 // ******** CREATE Routes
 
-export function createRoutes(app: express.Application, config: string, pinger: IPinger, logger?: ILogger) {
+export function createRoutes(app: express.Application, config: string, pinger: IPinger, logger: ILogger) {
     // **** initialize
     configuration = config;
     configurationObj = load(config) as Record<string, any>;
@@ -274,16 +274,15 @@ export function createRoutes(app: express.Application, config: string, pinger: I
 
             // check
             if (validData.ok) {
-                // Parse the config to a plain object, then dump to YAML
-                const parsedConfig = JSON.parse(json_str);
-                const yamlStr = dump(parsedConfig);
+                // Use validated data directly instead of re-parsing
+                const yamlStr = dump(validData.data);
 
                 // Write to the Docker-mounted config path with formatted YAML
                 const writeSuccess = write_file(getConfigPath(), yamlStr, log_writer);
 
-                if (!writeSuccess) {
+                if (!writeSuccess.success) {
                     res.status(_400).json({
-                        message: `ERROR: Failed to write configuration file.`
+                        message: writeSuccess.error || `ERROR: Failed to write configuration file.`
                     });
                     return;
                 }

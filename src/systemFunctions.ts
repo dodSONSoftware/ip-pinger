@@ -35,14 +35,15 @@ export function ensureError(value: unknown): Error {
 
 // **** file functions
 
-export function write_file(filename: string, content: string, logger?: ILogger): boolean {
+export function write_file(filename: string, content: string, logger?: ILogger): { success: boolean; error?: string } {
     try {
         fs.writeFileSync(filename, content);
-        return true;
+        return { success: true };
     } catch (error) {
         const err = ensureError(error);
-        logger?.write_error("systemFunctions.write_file", `Failed to write file "${filename}": ${err.message}`);
-        return false;
+        const errorMsg = `Failed to write file "${filename}": ${err.message}`;
+        logger?.write_error("systemFunctions.write_file", errorMsg);
+        return { success: false, error: errorMsg };
     }
 }
 
@@ -119,7 +120,7 @@ export function convert_from_log_level_enum_to_string(log_level: LogLevel): stri
 
 export function sleep(delayMS: number): Promise<void> {
     if (delayMS === 0) {
-        return new Promise(() => { });
+        return Promise.resolve();
     }
     return new Promise((resolve) => setTimeout(resolve, delayMS));
 }
