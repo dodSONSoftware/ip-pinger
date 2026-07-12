@@ -1,18 +1,28 @@
 {
-  "docker-container-name": "ip-pinger-2",
   "log-level": "debug",
   "always-log-errors": true,
-  "prometheus-port": 3300,
+  "prometheus-port": 9090,
+  "api-port": 3300,
   "interval-secs": 30,
   "devices": [
     {
       "source": "Indoor",
-      "ip-address": "192.168.1.28",
+      "ip-address": "192.168.1.21",
       "device-type": "sensor"
     },
     {
       "source": "Outdoor",
-      "ip-address": "192.168.1.157",
+      "ip-address": "192.168.1.109",
+      "device-type": "sensor"
+    },
+    {
+      "source": "Pool",
+      "ip-address": "192.168.1.198",
+      "device-type": "sensor"
+    },
+    {
+      "source": "Winter Room",
+      "ip-address": "192.168.1.236",
       "device-type": "sensor"
     }
   ]

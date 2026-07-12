@@ -1,12 +1,11 @@
 /*
- * Copyright (c) 2025 dodson Software ( dodson labs )
- * Author: Randy Dodson <dodsonsoftware@gmail.com>
- * Licensed under the MIT License with Patent Grant and NOTICE preservation.
- * See the LICENSE file for the full terms.
+ * Copyright (c) 2026 dodson Software ( dodson labs )
+ * SPDX-License-Identifier: MIT
  */
 
 import * as sysFunc from "./systemFunctions";
-import { IConfig, ILogger, LogLevel } from "./interfaces";
+import type { IConfig, ILogger} from "./interfaces";
+import { LogLevel } from "./interfaces";
 
 // TODO: ----------------
 // TODO: reconfigure the logs to look better ( consider using json logs )
@@ -46,25 +45,50 @@ export class Logger implements ILogger {
     }
 
     write_debug(originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
-        this.write_local_log(LogLevel.Debug, originator, message, elapsed_time_start_date);
+        this._write_local_log(LogLevel.Debug, originator, message, elapsed_time_start_date);
     }
 
     write_info(originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
-        this.write_local_log(LogLevel.Info, originator, message, elapsed_time_start_date);
+        this._write_local_log(LogLevel.Info, originator, message, elapsed_time_start_date);
     }
 
     write_warn(originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
-        this.write_local_log(LogLevel.Warn, originator, message, elapsed_time_start_date);
+        this._write_local_log(LogLevel.Warn, originator, message, elapsed_time_start_date);
     }
 
     write_error(originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
-        this.write_local_log(LogLevel.Error, originator, message, elapsed_time_start_date);
+        this._write_local_log(LogLevel.Error, originator, message, elapsed_time_start_date);
     }
 
     // ********
-    // ******** private logging functions
+    // ******** STATIC functions
 
-    private canLog(logLevel: LogLevel): boolean {
+    static write_local_log(log_level: LogLevel, originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
+        // create header
+        let header = "";
+        if (elapsed_time_start_date === null) {
+            header = `[${sysFunc.get_timestamp(false)}][${sysFunc.elapsed_time(new Date(Date.now()))}][${sysFunc.convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
+        } else {
+            header = `[${sysFunc.get_timestamp(false)}][${sysFunc.elapsed_time(elapsed_time_start_date)}][${sysFunc.convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
+        }
+
+        // create message
+        const msg = `${header} ${message}`;
+
+        // check for error
+        if (log_level === LogLevel.Error) {
+            // write message to stdErr
+            console.error(msg);
+        } else {
+            // write message to stdOut
+            console.log(msg);
+        }
+    }
+
+    // ********
+    // ******** PRIVATE logging functions
+
+    private _canLog(logLevel: LogLevel): boolean {
         // check for an auto-error
         if (this.global_always_log_errors && logLevel === LogLevel.Error) {
             return true;
@@ -84,28 +108,10 @@ export class Logger implements ILogger {
         return false;
     }
 
-    private write_local_log(log_level: LogLevel, originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
+    private _write_local_log(log_level: LogLevel, originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
         // check
-        if (this.canLog(log_level)) {
-            // create header
-            let header = "";
-            if (elapsed_time_start_date === null) {
-                header = `[${sysFunc.get_timestamp(false)}][${sysFunc.convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
-            } else {
-                header = `[${sysFunc.get_timestamp(false)}][${sysFunc.elapsed_time(elapsed_time_start_date)}][${sysFunc.convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
-            }
-
-            // create message
-            const msg = `${header} ${message}`;
-
-            // check for error
-            if (log_level === LogLevel.Error) {
-                // write message to stdErr
-                console.error(msg);
-            } else {
-                // write message to stdOut
-                console.log(msg);
-            }
+        if (this._canLog(log_level)) {
+            Logger.write_local_log(log_level, originator, message, elapsed_time_start_date);
         }
     }
 }

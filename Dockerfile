@@ -1,59 +1,67 @@
-# ------------------------------------------------
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 dodson Software ( dodson labs )
+
 # Stage 1: Build the TypeScript application
+FROM node:22-slim AS builder
 
-# Start with a NodeJS image
-FROM node:22 AS builder
+# Install build tools for native modules
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json (if available)
+# Copy package files first (better layer caching)
 COPY package*.json ./
 
-# Install dependencies
-RUN npm install
+# Install all dependencies (including devDependencies for native module compilation)
+RUN npm ci
 
-# Copy the rest of the application code
+# Copy source code
 COPY . .
 
-# Compile the TypeScript code
+# Compile TypeScript
 RUN npx tsc
 
 # ------------------------------------------------
-# Stage 2: Create the final image
+# Stage 2: Production runtime
+FROM node:22-slim
 
-# Start with a NodeJS image
-FROM node:22
-
-# Set the working directory
-WORKDIR /app
-
-# Copy only the necessary files from the builder stage
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
-
-# Install only production dependencies
-RUN npm install --only=production && npm cache clean --force
-
-# ---- Install the latest Docker CLI --------------------------------
+# Install runtime requirements (libcap2-bin for setcap, curl for healthcheck)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg && \
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg | \
-        gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-      https://download.docker.com/linux/debian $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable" \
-      > /etc/apt/sources.list.d/docker.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends docker-ce-cli && \
-    rm -rf /var/lib/apt/lists/*
+    libcap2-bin \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory
-WORKDIR /app/dist
+WORKDIR /app
 
-# Exposed ports
+# Copy package files
+COPY package*.json ./
+
+# Copy pre-compiled node_modules from builder (includes native modules)
+COPY --from=builder /app/node_modules ./node_modules
+
+# Copy pre-compiled JavaScript from builder
+COPY --from=builder /app/dist ./dist
+
+# Expose the application ports
 EXPOSE 3300
+EXPOSE 9090
+
+# Grant raw socket capabilities to Node.js binary (Linux capability approach)
+# This allows raw sockets without running as root
+RUN setcap cap_net_raw+ep $(readlink -f $(which node))
+
+# Run as non-root user for better security
+USER node
+
+# Health check - probe the metrics endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -sf http://localhost:9090/metrics || exit 1
 
 # Command to run the application
-CMD ["node", "index.js"]
+CMD ["node", "dist/index.js"]

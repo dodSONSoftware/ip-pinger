@@ -1,8 +1,6 @@
 /*
- * Copyright (c) 2025 dodson Software ( dodson labs )
- * Author: Randy Dodson <dodsonsoftware@gmail.com>
- * Licensed under the MIT License with Patent Grant and NOTICE preservation.
- * See the LICENSE file for the full terms.
+ * Copyright (c) 2026 dodson Software ( dodson labs )
+ * SPDX-License-Identifier: MIT
  */
 
 import * as interfaces from "./interfaces";
@@ -10,6 +8,7 @@ import * as sysFunc from "./systemFunctions";
 import { Logger } from "./Logger";
 import { Pinger } from "./Pinger";
 import { loadConfig } from "./common";
+import { read_file_json } from "./systemFunctions";
 
 // ******** global variables
 
@@ -18,6 +17,16 @@ let config: Map<string, any> | null = new Map<string, any>();
 let logger: Logger;
 let pinger_dude: interfaces.IPinger;
 
+// ******** Load package info for logging
+const packageJsonPath = "/app/package.json";
+const packageData = read_file_json(packageJsonPath);
+const appName = packageData?.get("name") ?? "Unknown App";
+const appVersion = packageData?.get("version") ?? "unknown";
+
+// ******** log the boot-up
+//console.log(`>>>>>>>> Booting the IP Pinger Application at [${sysFunc.get_timestamp(false)}]`);
+Logger.write_local_log(interfaces.LogLevel.Info, "boot", `Booting ${appName} v${appVersion}.`);
+
 // ******** local functions
 
 function initialize() {
@@ -25,31 +34,26 @@ function initialize() {
     const start_date = new Date();
 
     // read configurations
-    const [configuration, config_str] = loadConfig("./config.json");
+    const [configuration, config_str] = loadConfig();
 
-    // log it
-    console.log(`CONFIGURATION\n\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n`);
-    console.log(`docker-container-name: ${configuration.docker_container_name}`);
-    console.log(`log_level: ${configuration.log_level}`);
-    console.log(`always_log_errors: ${configuration.always_log_errors}`);
-    console.log(`prometheus_port: ${configuration.prometheus_port}`);
-    console.log(`interval_secs: ${configuration.interval_secs}`);
-    configuration.devices.forEach((device: interfaces.IDevice) => {
-        console.log(`\t ${device.source}: ${device.ip_address}, ${device.device_type}`);
-    });
-    console.log(`\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n\n`);
-
-    // initialize logger
+    // initialize logger first
     logger = new Logger(configuration);
 
+    // log configuration (using static method since logger isn't fully initialized yet)
+    Logger.write_local_log(
+        interfaces.LogLevel.Info,
+        originator + ".initialize",
+        `Configuration loaded: ${config_str}`
+    );
+
     // log-it
-    logger.write_debug(originator + ".initialize", `Starting the Pinger Application...`);
+    logger.write_debug(originator + ".initialize", `Starting the IP Pinger Application.`);
 
     // init pinger
     pinger_dude = new Pinger(configuration, config_str, logger);
 
     // log-it
-    logger.write_info(originator + ".initialize", `Pinger Application initialized.`, start_date);
+    logger.write_info(originator + ".initialize", `IP Pinger Application initialized.`, start_date);
 }
 
 // ******** main function

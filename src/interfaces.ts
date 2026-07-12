@@ -1,8 +1,6 @@
 /*
- * Copyright (c) 2025 dodson Software ( dodson labs )
- * Author: Randy Dodson <dodsonsoftware@gmail.com>
- * Licensed under the MIT License with Patent Grant and NOTICE preservation.
- * See the LICENSE file for the full terms.
+ * Copyright (c) 2026 dodson Software ( dodson labs )
+ * SPDX-License-Identifier: MIT
  */
 
 // **** Logger
@@ -29,7 +27,9 @@ export interface ILogger {
 export interface IPinger {
     run(): Promise<void>;
     //ping_device(ip_address: string): [boolean, number]
-    ping_device(ip_address: string): Promise<[boolean, number]>
+    ping_device(ip_address: string): Promise<[boolean, number]>;
+    updateConfig(config: IConfig, config_str: string): void;
+    rebuildGauges(): void;
 }
 
 export interface IPingResults {
@@ -40,10 +40,10 @@ export interface IPingResults {
 }
 
 export interface IConfig {
-    docker_container_name: string;
     log_level: string;
     always_log_errors: boolean;
     prometheus_port: number;
+    api_port: number;
     interval_secs: number;
     devices: IDevice[];
 }
