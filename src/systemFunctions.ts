@@ -5,6 +5,7 @@
 
 import fs from "fs";
 import * as childProc from "child_process";
+import type { ILogger } from "./interfaces";
 import { LogLevel } from "./interfaces";
 
 // **** environment variables functions
@@ -34,35 +35,38 @@ export function ensureError(value: unknown): Error {
 
 // **** file functions
 
-export function write_file(filename: string, content: string): boolean {
+export function write_file(filename: string, content: string, logger?: ILogger): boolean {
     try {
         fs.writeFileSync(filename, content);
         return true;
     } catch (error) {
-        // TODO: log error
+        const err = ensureError(error);
+        logger?.write_error("systemFunctions.write_file", `Failed to write file "${filename}": ${err.message}`);
         return false;
     }
 }
 
-export function read_file(filename: string): string | null {
+export function read_file(filename: string, logger?: ILogger): string | null {
     try {
         const buffer = fs.readFileSync(filename, "utf8");
         return buffer.toString();
     } catch (error) {
-        // TODO: log error
+        const err = ensureError(error);
+        logger?.write_error("systemFunctions.read_file", `Failed to read file "${filename}": ${err.message}`);
         return null;
     }
 }
 
-export function read_file_json(filename: string): Map<string, any> | null {
+export function read_file_json(filename: string, logger?: ILogger): Map<string, any> | null {
     try {
-        const data = read_file(filename);
+        const data = read_file(filename, logger);
         if (data != null) {
             return new Map<string, any>(Object.entries(JSON.parse(data)));
         }
         return null;
     } catch (error) {
-        // TODO: log error
+        const err = ensureError(error);
+        logger?.write_error("systemFunctions.read_file_json", `Failed to parse JSON from "${filename}": ${err.message}`);
         return null;
     }
 }

@@ -175,6 +175,10 @@ export class Pinger implements dli.IPinger {
         this.rebuildPrometheusGauges();
     }
 
+    public getLogger(): dli.ILogger {
+        return this.logger;
+    }
+
     // ****************************************************************
     // ******** IPinger properties
 

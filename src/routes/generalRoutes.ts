@@ -29,7 +29,7 @@ export const Json = "application/json";
 
 // **** Load package.json for dynamic version
 const packageJsonPath = join(__dirname, "..", "..", "package.json");
-const packageData = read_file_json(packageJsonPath);
+const packageData = read_file_json(packageJsonPath, undefined);
 
 // **** STATIC Information
 
@@ -81,12 +81,12 @@ export const aboutInformation: Record<string, any> = {
 var configuration: string;
 var configurationObj: Record<string, any>;
 var ip_pinger: IPinger;
-var log_writer: ILogger;
+var log_writer: ILogger | undefined;
 const originator: string = "generalRoutes";
 
 // ******** CREATE Routes
 
-export function createRoutes(app: express.Application, config: string, pinger: IPinger, logger: ILogger) {
+export function createRoutes(app: express.Application, config: string, pinger: IPinger, logger?: ILogger) {
     // **** initialize
     configuration = config;
     configurationObj = load(config) as Record<string, any>;
@@ -198,7 +198,7 @@ export function createRoutes(app: express.Application, config: string, pinger: I
     app.route("/read-config").get((req: express.Request, res: express.Response) => {
         try {
             // Use loadConfig to properly parse and convert the config
-            const [newConfig, config_text] = loadConfig();
+            const [newConfig, config_text] = loadConfig(log_writer);
 
             // Update in-memory cache
             configuration = config_text;
@@ -279,10 +279,17 @@ export function createRoutes(app: express.Application, config: string, pinger: I
                 const yamlStr = dump(parsedConfig);
 
                 // Write to the Docker-mounted config path with formatted YAML
-                write_file(getConfigPath(), yamlStr);
+                const writeSuccess = write_file(getConfigPath(), yamlStr, log_writer);
+
+                if (!writeSuccess) {
+                    res.status(_400).json({
+                        message: `ERROR: Failed to write configuration file.`
+                    });
+                    return;
+                }
 
                 // Use loadConfig to properly parse and convert the config
-                const [newConfig, config_text] = loadConfig();
+                const [newConfig, config_text] = loadConfig(log_writer);
 
                 // Update internal route state
                 configuration = config_text;
@@ -324,7 +331,7 @@ export function createRoutes(app: express.Application, config: string, pinger: I
     app.route("/reload-config").get((req: express.Request, res: express.Response) => {
         try {
             // Use loadConfig to properly parse and convert the config
-            const [newConfig, rawText] = loadConfig();
+            const [newConfig, rawText] = loadConfig(log_writer);
 
             // Update internal route state
             configuration = rawText;
@@ -342,7 +349,7 @@ export function createRoutes(app: express.Application, config: string, pinger: I
                 `Configuration reloaded: ${rawText}`
             );
 
-            log_writer.write_info("generalRoutes.reload-config", `Configuration reloaded successfully.`);
+            log_writer?.write_info("generalRoutes.reload-config", `Configuration reloaded successfully.`);
             res.status(OK).json({ message: "Configuration reloaded successfully." });
 
         } catch (error) {
