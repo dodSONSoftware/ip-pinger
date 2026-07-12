@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { IConfig, IDevice, ILogger } from "./interfaces";
+import type { IConfig, IDevice, ILogger, LogLevels } from "./interfaces";
 import { LogLevel } from "./interfaces";
 import { readFileSync } from "fs";
 import { z } from "zod";
@@ -31,7 +31,7 @@ const DeviceSchema = z.object({
 });
 
 const ConfigSchema = z.object({
-    logLevel: z.enum(["debug", "info", "warn", "error"]),
+    logLevel: z.enum(["debug", "info", "warn", "error"] as const),
     alwaysLogErrors: z.boolean(),
     prometheusPort: z.number().int().positive(),
     apiPort: z.number().int().positive(),
@@ -41,7 +41,7 @@ const ConfigSchema = z.object({
 
 /* ---------- Validation function ---------- */
 export type Device = z.infer<typeof DeviceSchema>;
-export type Config = z.infer<typeof ConfigSchema>;
+export type Config = z.infer<typeof ConfigSchema> & { logLevel: LogLevels };
 
 /**
  * Validates YAML configuration string against the schema.

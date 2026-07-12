@@ -7,7 +7,7 @@ import type express from "express";
 import { validateConfig, getConfigPath, loadConfig } from "../common";
 import { ensureError, write_file, read_file_json } from "../systemFunctions";
 import type { ILogger, IPinger, IConfig, IDevice } from "../interfaces";
-import { IPingResults, LogLevel } from "../interfaces";
+import { LogLevel } from "../interfaces";
 import { Logger } from "../Logger";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -29,7 +29,7 @@ export const Json = "application/json";
 
 // **** Load package.json for dynamic version
 const packageJsonPath = join(__dirname, "..", "..", "package.json");
-const packageData = read_file_json(packageJsonPath, { global_log_level: () => 0, global_log_level_string: () => "Console", write_info: () => {}, write_warn: () => {}, write_error: (o, m) => console.error(`[${o}] ${m}`), write_debug: () => {} });
+const packageData = read_file_json(packageJsonPath);
 
 // **** STATIC Information
 

@@ -15,6 +15,17 @@ import type { Session } from "net-ping";
 const netPing = require("net-ping");
 const cors = require("cors");
 
+// ****************************************************************
+// ******** Result types for ping operations
+
+interface PingResultInternal {
+    ipAddress: string;
+    deviceName: string;
+    deviceType: string;
+    isAlive: boolean;
+    roundTripMs: number;
+}
+
 export class Pinger implements dli.IPinger {
     // ********
     // ******** private properties
@@ -209,12 +220,9 @@ export class Pinger implements dli.IPinger {
 
             // process results
             for (const ping_result of all_ping_results) {
-                // separate results
-                const ipAddress = String(ping_result[0]);
-                const deviceName = String(ping_result[1]);
-                const deviceType = String(ping_result[2]);
-                const isAlive = Number(ping_result[3]);
-                const roundtripMs = Number(ping_result[4]);
+                // Destructure result into named variables for clarity and safety
+                const { ipAddress, deviceName, deviceType, isAlive, roundTripMs }: PingResultInternal = ping_result;
+                const isAliveNum = isAlive ? 1 : 0;  // Convert boolean to number for Prometheus
 
                 // ******** process prometheus metrics
 
@@ -227,7 +235,7 @@ export class Pinger implements dli.IPinger {
                             deviceName: `${deviceName}`,
                             deviceType: `${deviceType}`
                         },
-                        isAlive
+                        isAliveNum
                     );
 
                     // log-it
@@ -246,11 +254,11 @@ export class Pinger implements dli.IPinger {
                             deviceName: `${deviceName}`,
                             deviceType: `${deviceType}`
                         },
-                        roundtripMs
+                        roundTripMs
                     );
 
                     // log-it
-                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ roundtripMs: ${Number(roundtripMs)}, deviceName: ${deviceName}, ipAddress: ${ipAddress} ].`, start_date);
+                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ roundtripMs: ${roundTripMs}, deviceName: ${deviceName}, ipAddress: ${ipAddress} ].`, start_date);
                 } else {
                     // log-it
                     this.logger.write_warn(this.originator + ".run", `Gauge Set; Gauge (Pinger_Roundtrip_Gauge) not found: [ ${ipAddress}, ${deviceName} ]`, start_date);
@@ -322,24 +330,36 @@ export class Pinger implements dli.IPinger {
         });
     }
 
-    private async ping_idevice(device: dli.IDevice): Promise<[string, string, string, boolean, number]> {
+    private async ping_idevice(device: dli.IDevice): Promise<PingResultInternal> {
         // capture variables
         const logger = this.logger;
         const originator = this.originator;
 
-        return new Promise<[string, string, string, boolean, number]>((resolve) => {
+        return new Promise<PingResultInternal>((resolve) => {
             // ping-it
             this.ip_pinger.pingHost(device.ipAddress, (error: Error | null, target: string, sent: Date, received: Date) => {
                 // check
                 if (error !== null) {
                     // Resolve with false
-                    resolve([device.ipAddress, device.source, device.deviceType, false, 0]);
+                    resolve({
+                        ipAddress: device.ipAddress,
+                        deviceName: device.source,
+                        deviceType: device.deviceType,
+                        isAlive: false,
+                        roundTripMs: 0
+                    });
                 } else {
                     // calculate ping round-trip
                     const roundTripMs = received.getTime() - sent.getTime();
 
                     // Resolve with true
-                    resolve([device.ipAddress, device.source, device.deviceType, true, roundTripMs]);
+                    resolve({
+                        ipAddress: device.ipAddress,
+                        deviceName: device.source,
+                        deviceType: device.deviceType,
+                        isAlive: true,
+                        roundTripMs
+                    });
                 }
             });
         });

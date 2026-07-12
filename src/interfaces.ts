@@ -81,16 +81,12 @@ export interface IPinger {
     rebuildGauges(): void;
 }
 
-export interface IPingResults {
-    source: string;
-    ip_address: string;
-    is_alive: boolean;
-    roundtrip_ms: number;
-}
+
+export type LogLevels = "debug" | "info" | "warn" | "error";
 
 export interface IConfig {
     [key: string]: unknown;
-    logLevel: string;
+    logLevel: LogLevels;
     alwaysLogErrors: boolean;
     prometheusPort: number;
     apiPort: number;
