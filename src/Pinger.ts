@@ -186,14 +186,16 @@ export class Pinger implements dli.IPinger {
     // ******** Public methods for runtime configuration updates
 
     /**
-     * Rebuilds the Prometheus gauges. Call this after configuration changes
-     * to ensure metrics only include current devices.
+     * Rebuilds the Prometheus gauges for device-specific metrics.
+     * Call this after configuration changes to ensure metrics only include current devices.
+     *
+     * Note: We do NOT use register.clear() here because it causes memory leaks when called
+     * frequently (see prom-client#567). Instead, we simply overwrite the gauge references.
+     * Non-device metrics (cycle duration, device counts) remain unchanged.
      */
     private rebuildPrometheusGauges(): void {
-        // Clear the registry to remove old gauges before recreating them
-        register.clear();
-
-        // Recreate gauges with fresh state
+        // Recreate device-specific gauges with fresh state
+        // These will automatically replace the old gauge instances
         this.prometheus_Pinger_Up_Gauge = new Gauge({
             name: `pinged`,
             help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
@@ -211,22 +213,6 @@ export class Pinger implements dli.IPinger {
             help: "Histogram of ping round-trip times in seconds.",
             labelNames: ["ipAddress", "deviceName", "deviceType"],
             buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
-        });
-
-        this.prometheus_Pinger_Cycle_Duration_Histogram = new Histogram({
-            name: `pinger_cycle_duration_seconds`,
-            help: "Duration of complete ping cycles in seconds.",
-            buckets: [1, 5, 10, 30, 60, 120, 300],
-        });
-
-        this.prometheus_Pinger_Devices_Up_Gauge = new Gauge({
-            name: `pinger_devices_up`,
-            help: "Number of devices currently reachable.",
-        });
-
-        this.prometheus_Pinger_Devices_Down_Gauge = new Gauge({
-            name: `pinger_devices_down`,
-            help: "Number of devices currently unreachable.",
         });
 
         this.prometheus_Pinger_Last_Success_Timestamp_Gauge = new Gauge({

@@ -55,8 +55,30 @@ while (true):
 ```
 
 ### Prometheus Metrics
-- `pinged` (Gauge) — 1 if device responds, 0 otherwise. Labels: `ip_address`, `device_name`
-- `pinged_roundtrip_ms` (Gauge) — Round-trip time in milliseconds. Labels: `ip_address`, `device_name`
+
+**Core Device Metrics:**
+- `pinged` (Gauge) — 1 if device responds, 0 otherwise. Labels: `ipAddress`, `deviceName`, `deviceType`
+- `pinged_roundtrip_ms` (Gauge) — Latest round-trip time in milliseconds. Labels: `ipAddress`, `deviceName`, `deviceType`
+
+**Latency Distribution:**
+- `pinged_roundtrip_seconds` (Histogram) — Round-trip time distribution. Labels: `ipAddress`, `deviceName`, `deviceType`
+  - Buckets: 1ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1000ms (+Inf)
+
+**System-Level Metrics:**
+- `pinger_cycle_duration_seconds` (Histogram) — Duration of complete ping cycles
+  - Buckets: 1s, 5s, 10s, 30s, 60s, 120s, 300s
+- `pinger_devices_up` (Gauge) — Number of devices currently reachable
+- `pinger_devices_down` (Gauge) — Number of devices currently unreachable
+
+**Timestamp Metrics:**
+- `pinged_last_success_timestamp` (Gauge) — Unix timestamp of last successful ping per device
+- `pinged_last_failure_timestamp` (Gauge) — Unix timestamp of last failed ping per device
+
+**Error Tracking:**
+- `pinged_errors_total` (Counter) — Total error count by type. Labels: `ipAddress`, `deviceName`, `deviceType`, `errorType`
+  - Error types: `timeout`, `host_unreachable`, `network_unreachable`, `ttl_exceeded`, `other`
+
+**Note on Memory Management:** The `rebuildPrometheusGauges()` method does NOT call `register.clear()` to avoid memory leaks associated with frequent registry clearing (prom-client#567). Device-specific gauges are replaced by creating new instances; non-device metrics persist across config reloads.
 
 ### Configuration (`config.yml`)
 ```yaml
