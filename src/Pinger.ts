@@ -182,20 +182,47 @@ export class Pinger implements dli.IPinger {
         logger.write_info(this.originator + ".ctor", `Ping Interval Cycle: ${this.configuration.intervalSecs} seconds.`);
     } // end-constructor
 
+    // Store previous device identifiers for tracking changes
+    private previousDeviceKeys: Set<string> = new Set();
+
     // ****************************************************************
     // ******** Public methods for runtime configuration updates
+
+    /**
+     * Generates a unique key for a device based on its identifying labels.
+     */
+    private getDeviceKey(ipAddress: string, deviceName: string, deviceType: string): string {
+        return `${ipAddress}:${deviceName}:${deviceType}`;
+    }
 
     /**
      * Rebuilds the Prometheus gauges for device-specific metrics.
      * Call this after configuration changes to ensure metrics only include current devices.
      *
-     * Note: We do NOT use register.clear() here because it causes memory leaks when called
-     * frequently (see prom-client#567). Instead, we simply overwrite the gauge references.
-     * Non-device metrics (cycle duration, device counts) remain unchanged.
+     * Note: We DO use register.clear() here because config changes are infrequent operations
+     * (not per-ping-cycle). This ensures removed devices' metrics are cleared from the registry.
+     * Non-device metrics (cycle duration, device counts) are recreated after clearing.
      */
     private rebuildPrometheusGauges(): void {
-        // Recreate device-specific gauges with fresh state
-        // These will automatically replace the old gauge instances
+        // Get current device keys
+        const currentDeviceKeys = new Set<string>();
+        for (const device of this.configuration.devices) {
+            currentDeviceKeys.add(this.getDeviceKey(device.ipAddress, device.source, device.deviceType));
+        }
+
+        // Check if devices have changed significantly
+        const devicesChanged =
+            currentDeviceKeys.size !== this.previousDeviceKeys.size ||
+            ![...currentDeviceKeys].every(key => this.previousDeviceKeys.has(key)) ||
+            ![...this.previousDeviceKeys].every(key => currentDeviceKeys.has(key));
+
+        if (devicesChanged && this.previousDeviceKeys.size > 0) {
+            // Clear the registry to remove old device-specific metrics
+            // Only clear if we had previous devices (avoid clearing on first init)
+            register.clear();
+        }
+
+        // Recreate all gauges (both device-specific and global)
         this.prometheus_Pinger_Up_Gauge = new Gauge({
             name: `pinged`,
             help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
@@ -215,6 +242,22 @@ export class Pinger implements dli.IPinger {
             buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
         });
 
+        this.prometheus_Pinger_Cycle_Duration_Histogram = new Histogram({
+            name: `pinger_cycle_duration_seconds`,
+            help: "Duration of complete ping cycles in seconds.",
+            buckets: [1, 5, 10, 30, 60, 120, 300],
+        });
+
+        this.prometheus_Pinger_Devices_Up_Gauge = new Gauge({
+            name: `pinger_devices_up`,
+            help: "Number of devices currently reachable.",
+        });
+
+        this.prometheus_Pinger_Devices_Down_Gauge = new Gauge({
+            name: `pinger_devices_down`,
+            help: "Number of devices currently unreachable.",
+        });
+
         this.prometheus_Pinger_Last_Success_Timestamp_Gauge = new Gauge({
             name: `pinged_last_success_timestamp`,
             help: "Unix timestamp of the last successful ping for each device.",
@@ -232,6 +275,9 @@ export class Pinger implements dli.IPinger {
             help: "Total count of ping errors by device.",
             labelNames: ["ipAddress", "deviceName", "deviceType", "errorType"],
         });
+
+        // Update previous device keys for next comparison
+        this.previousDeviceKeys = currentDeviceKeys;
     }
 
     /**
