@@ -5,7 +5,7 @@
 
 import type * as dli from "./interfaces";
 import { get_timestamp, sleep, sleep_from_start } from "./systemFunctions";
-import { register, Gauge } from "prom-client";
+import { register, Gauge, Histogram, Counter } from "prom-client";
 import type { NextFunction } from "express";
 import express from "express";
 import bodyParser from "body-parser";
@@ -42,6 +42,14 @@ export class Pinger implements dli.IPinger {
     // ----
     private prometheus_Pinger_Up_Gauge: Gauge;
     private prometheus_Pinger_Roundtrip_Gauge: Gauge;
+    private prometheus_Pinger_Roundtrip_Histogram: Histogram;
+    // Additional metrics
+    private prometheus_Pinger_Cycle_Duration_Histogram: Histogram;
+    private prometheus_Pinger_Devices_Up_Gauge: Gauge;
+    private prometheus_Pinger_Devices_Down_Gauge: Gauge;
+    private prometheus_Pinger_Last_Success_Timestamp_Gauge: Gauge;
+    private prometheus_Pinger_Last_Failure_Timestamp_Gauge: Gauge;
+    private prometheus_Pinger_Error_Total: Counter;
 
     // ********
     // ******** ctor
@@ -68,6 +76,52 @@ export class Pinger implements dli.IPinger {
             name: `pinged_roundtrip_ms`,
             help: "This indicator (numeric) shows the roundtrip in milliseconds.",
             labelNames: ["ipAddress", "deviceName", "deviceType"],
+        });
+
+        // create a histogram for roundtrip distribution
+        this.prometheus_Pinger_Roundtrip_Histogram = new Histogram({
+            name: `pinged_roundtrip_seconds`,
+            help: "Histogram of ping round-trip times in seconds.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+            buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+        });
+
+        // create histogram for pinger cycle duration
+        this.prometheus_Pinger_Cycle_Duration_Histogram = new Histogram({
+            name: `pinger_cycle_duration_seconds`,
+            help: "Duration of complete ping cycles in seconds.",
+            buckets: [1, 5, 10, 30, 60, 120, 300],
+        });
+
+        // create gauges for device counts
+        this.prometheus_Pinger_Devices_Up_Gauge = new Gauge({
+            name: `pinger_devices_up`,
+            help: "Number of devices currently reachable.",
+        });
+
+        this.prometheus_Pinger_Devices_Down_Gauge = new Gauge({
+            name: `pinger_devices_down`,
+            help: "Number of devices currently unreachable.",
+        });
+
+        // create gauges for last success/failure timestamps
+        this.prometheus_Pinger_Last_Success_Timestamp_Gauge = new Gauge({
+            name: `pinged_last_success_timestamp`,
+            help: "Unix timestamp of the last successful ping for each device.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+        });
+
+        this.prometheus_Pinger_Last_Failure_Timestamp_Gauge = new Gauge({
+            name: `pinged_last_failure_timestamp`,
+            help: "Unix timestamp of the last failed ping for each device.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+        });
+
+        // create counter for ping errors
+        this.prometheus_Pinger_Error_Total = new Counter({
+            name: `pinged_errors_total`,
+            help: "Total count of ping errors by device.",
+            labelNames: ["ipAddress", "deviceName", "deviceType", "errorType"],
         });
 
         // ******** SETUP EXPRESS
@@ -151,6 +205,47 @@ export class Pinger implements dli.IPinger {
             help: "This indicator (numeric) shows the roundtrip in milliseconds.",
             labelNames: ["ipAddress", "deviceName", "deviceType"],
         });
+
+        this.prometheus_Pinger_Roundtrip_Histogram = new Histogram({
+            name: `pinged_roundtrip_seconds`,
+            help: "Histogram of ping round-trip times in seconds.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+            buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+        });
+
+        this.prometheus_Pinger_Cycle_Duration_Histogram = new Histogram({
+            name: `pinger_cycle_duration_seconds`,
+            help: "Duration of complete ping cycles in seconds.",
+            buckets: [1, 5, 10, 30, 60, 120, 300],
+        });
+
+        this.prometheus_Pinger_Devices_Up_Gauge = new Gauge({
+            name: `pinger_devices_up`,
+            help: "Number of devices currently reachable.",
+        });
+
+        this.prometheus_Pinger_Devices_Down_Gauge = new Gauge({
+            name: `pinger_devices_down`,
+            help: "Number of devices currently unreachable.",
+        });
+
+        this.prometheus_Pinger_Last_Success_Timestamp_Gauge = new Gauge({
+            name: `pinged_last_success_timestamp`,
+            help: "Unix timestamp of the last successful ping for each device.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+        });
+
+        this.prometheus_Pinger_Last_Failure_Timestamp_Gauge = new Gauge({
+            name: `pinged_last_failure_timestamp`,
+            help: "Unix timestamp of the last failed ping for each device.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+        });
+
+        this.prometheus_Pinger_Error_Total = new Counter({
+            name: `pinged_errors_total`,
+            help: "Total count of ping errors by device.",
+            labelNames: ["ipAddress", "deviceName", "deviceType", "errorType"],
+        });
     }
 
     /**
@@ -191,69 +286,96 @@ export class Pinger implements dli.IPinger {
             this.logger.write_debug(this.originator + ".run", `PINGING STARTED. Pinging ${this.configuration.devices.length} devices.`);
 
             // init
-            const start_date = new Date();
+            const cycle_start_date = new Date();
             const ping_workers = [];
+            let upCount = 0;
+            let downCount = 0;
 
             // process all devices
             for (const device of this.configuration.devices) {
-                ping_workers.push(this.ping_idevice(device));
+                ping_workers.push(this.ping_idevice(device, cycle_start_date));
             }
 
-            // wait for all worker to complete
+            // wait for all workers to complete
             const all_ping_results = await Promise.all(ping_workers);
 
-            // process results
+            // process results and count up/down devices
             for (const ping_result of all_ping_results) {
-                // Destructure result into named variables for clarity and safety
                 const { ipAddress, deviceName, deviceType, isAlive, roundTripMs }: PingResultInternal = ping_result;
-                const isAliveNum = isAlive ? 1 : 0;  // Convert boolean to number for Prometheus
+                const isAliveNum = isAlive ? 1 : 0;
 
-                // ******** process prometheus metrics
+                if (isAlive) {
+                    upCount++;
+                } else {
+                    downCount++;
+                }
 
-                // check-it
+                // Update per-device status gauge
                 if (this.prometheus_Pinger_Up_Gauge) {
-                    // set gauge
                     this.prometheus_Pinger_Up_Gauge.set(
-                        {
-                            ipAddress: `${ipAddress}`,
-                            deviceName: `${deviceName}`,
-                            deviceType: `${deviceType}`
-                        },
+                        { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
                         isAliveNum
                     );
-
-                    // log-it
-                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ isAlive: ${Boolean(isAlive)}, deviceName: ${deviceName}, deviceType: ${deviceType}, ipAddress: ${ipAddress} ].`, start_date);
-                } else {
-                    // log-it
-                    this.logger.write_warn(this.originator + ".run", `Gauge Set; Gauge (Pinger_Gauge) not found: [ ${ipAddress}, ${deviceName} ]`, start_date);
                 }
 
-                // check-it
+                // Update per-device roundtrip gauge
                 if (this.prometheus_Pinger_Roundtrip_Gauge) {
-                    // set gauge
                     this.prometheus_Pinger_Roundtrip_Gauge.set(
-                        {
-                            ipAddress: `${ipAddress}`,
-                            deviceName: `${deviceName}`,
-                            deviceType: `${deviceType}`
-                        },
+                        { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
                         roundTripMs
                     );
-
-                    // log-it
-                    this.logger.write_debug(this.originator + ".run", `Gauge Set [ roundtripMs: ${roundTripMs}, deviceName: ${deviceName}, ipAddress: ${ipAddress} ].`, start_date);
-                } else {
-                    // log-it
-                    this.logger.write_warn(this.originator + ".run", `Gauge Set; Gauge (Pinger_Roundtrip_Gauge) not found: [ ${ipAddress}, ${deviceName} ]`, start_date);
                 }
+
+                // Update per-device roundtrip histogram
+                const roundTripSeconds = roundTripMs / 1000;
+                if (this.prometheus_Pinger_Roundtrip_Histogram) {
+                    this.prometheus_Pinger_Roundtrip_Histogram.observe(
+                        { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
+                        roundTripSeconds
+                    );
+                }
+
+                // Update timestamps based on result
+                const nowTimestamp = Math.floor(new Date().getTime() / 1000); // Unix timestamp in seconds
+                if (isAlive) {
+                    if (this.prometheus_Pinger_Last_Success_Timestamp_Gauge) {
+                        this.prometheus_Pinger_Last_Success_Timestamp_Gauge.set(
+                            { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
+                            nowTimestamp
+                        );
+                    }
+                } else {
+                    if (this.prometheus_Pinger_Last_Failure_Timestamp_Gauge) {
+                        this.prometheus_Pinger_Last_Failure_Timestamp_Gauge.set(
+                            { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
+                            nowTimestamp
+                        );
+                    }
+                }
+            }
+
+            // Update aggregate device counts
+            if (this.prometheus_Pinger_Devices_Up_Gauge) {
+                this.prometheus_Pinger_Devices_Up_Gauge.set(upCount);
+            }
+            if (this.prometheus_Pinger_Devices_Down_Gauge) {
+                this.prometheus_Pinger_Devices_Down_Gauge.set(downCount);
+            }
+
+            // Record cycle duration
+            const cycle_end_date = new Date();
+            const cycle_duration_ms = cycle_end_date.getTime() - cycle_start_date.getTime();
+            const cycle_duration_seconds = cycle_duration_ms / 1000;
+            if (this.prometheus_Pinger_Cycle_Duration_Histogram) {
+                this.prometheus_Pinger_Cycle_Duration_Histogram.observe(cycle_duration_seconds);
             }
 
             // log-it
-            this.logger.write_debug(this.originator + ".run", `PINGING COMPLETE. ${this.configuration.devices.length} devices pinged.`, start_date);
+            this.logger.write_debug(this.originator + ".run", `PINGING COMPLETE. ${upCount} devices up, ${downCount} devices down.`, cycle_start_date);
+            this.logger.write_debug(this.originator + ".run", `Cycle duration: ${cycle_duration_ms.toFixed(0)}ms`, cycle_start_date);
 
             // wait-for-it
-            await sleep_from_start(this.configuration.intervalSecs * 1000, start_date);
+            await sleep_from_start(this.configuration.intervalSecs * 1000, cycle_start_date);
         }
     } // end-run
 
@@ -314,21 +436,38 @@ export class Pinger implements dli.IPinger {
         });
     }
 
-    private async ping_idevice(device: dli.IDevice): Promise<PingResultInternal> {
+    private async ping_idevice(device: dli.IDevice, cycleStartDate: Date): Promise<PingResultInternal> {
         // capture variables
         const logger = this.logger;
         const originator = this.originator;
+        const ipAddress = device.ipAddress;
+        const deviceName = device.source;
+        const deviceType = device.deviceType;
 
         return new Promise<PingResultInternal>((resolve) => {
             // ping-it
-            this.ip_pinger.pingHost(device.ipAddress, (error: Error | null, target: string, sent: Date, received: Date) => {
+            this.ip_pinger.pingHost(ipAddress, (error: Error | null, target: string, sent: Date, received: Date) => {
                 // check
                 if (error !== null) {
+                    // Increment error counter
+                    const errorType = this.getErrorType(error);
+                    if (this.prometheus_Pinger_Error_Total) {
+                        this.prometheus_Pinger_Error_Total.inc({
+                            ipAddress: `${ipAddress}`,
+                            deviceName: `${deviceName}`,
+                            deviceType: `${deviceType}`,
+                            errorType: errorType,
+                        });
+                    }
+
+                    // log error
+                    logger.write_error(`${originator}.ping_idevice`, `"${ipAddress}" Device Error (${errorType}), ${error}`);
+
                     // Resolve with false
                     resolve({
-                        ipAddress: device.ipAddress,
-                        deviceName: device.source,
-                        deviceType: device.deviceType,
+                        ipAddress: ipAddress,
+                        deviceName: deviceName,
+                        deviceType: deviceType,
                         isAlive: false,
                         roundTripMs: 0
                     });
@@ -336,16 +475,38 @@ export class Pinger implements dli.IPinger {
                     // calculate ping round-trip
                     const roundTripMs = received.getTime() - sent.getTime();
 
+                    // ping successful
+                    logger.write_debug(`${originator}.ping_idevice`, `"${ipAddress}" Device Alive, ${roundTripMs}ms.`, cycleStartDate);
+
                     // Resolve with true
                     resolve({
-                        ipAddress: device.ipAddress,
-                        deviceName: device.source,
-                        deviceType: device.deviceType,
+                        ipAddress: ipAddress,
+                        deviceName: deviceName,
+                        deviceType: deviceType,
                         isAlive: true,
                         roundTripMs
                     });
                 }
             });
         });
+    }
+
+    /**
+     * Classifies the type of ICMP/error encountered during ping.
+     */
+    private getErrorType(error: Error): string {
+        if (error instanceof Error) {
+            const msg = error.message.toLowerCase();
+            if (msg.includes("timeout") || msg.includes("timed out")) {
+                return "timeout";
+            } else if (msg.includes("unreachable") || msg.includes("no route")) {
+                return "host_unreachable";
+            } else if (msg.includes("network")) {
+                return "network_unreachable";
+            } else if (msg.includes("ttl") || msg.includes("time exceeded")) {
+                return "ttl_exceeded";
+            }
+        }
+        return "other";
     }
 }

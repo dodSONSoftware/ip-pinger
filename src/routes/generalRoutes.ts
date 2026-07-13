@@ -49,7 +49,8 @@ type CommandsInfo = {
 };
 
 type SystemInfo = {
-    startDate: string;
+    status: string;
+    bootdate: string;
 };
 
 type AboutInfo = {
@@ -67,6 +68,19 @@ type AboutInformation = {
     commands: CommandsInfo;
 };
 
+type EndpointDetail = {
+    name: string;
+    route: string;
+    verb: string;
+    requestBody?: string;
+    responseBody: string;
+    description: string;
+};
+
+type EndpointsInfo = {
+    endpoints: EndpointDetail[];
+};
+
 // **** PRIVATE Variables for runtime state
 var start_date: Date;
 
@@ -75,12 +89,13 @@ export const aboutInformation: AboutInformation = {
         name: "IP Pinger Service",
         version: (packageData?.get("version") as string) ?? "unknown",
         author: "Randy Dodson (dodsonsoftware@gmail.com)",
-        description: "Provides device ping information with hot-reload configuration support.",
+        description: "An Express-based IP network pinger that periodically monitors device reachability, tracks round-trip times with histogram distribution, publishes metrics to Prometheus, and supports runtime configuration reloading without restart.",
         copyright: "Copyright (c) 2026 dodson Software ( dodson labs )",
         license: "MIT License"
     },
     system: {
-        startDate: new Date().toISOString()
+        status: "healthy",
+        bootdate: ""
     },
     commands: {
         "name": "General",
@@ -118,10 +133,92 @@ export const aboutInformation: AboutInformation = {
                 {
                     "route": "/health",
                     "description": "Health check endpoint for container orchestration."
+                },
+                {
+                    "route": "/endpoints",
+                    "description": "Returns detailed information about each API endpoint."
                 }
             ]
         }
     }
+};
+
+// **** ENDPOINTS Information
+export const endpointsInfo: EndpointsInfo = {
+    endpoints: [
+        {
+            name: "About",
+            route: "/about",
+            verb: "GET",
+            requestBody: "None",
+            responseBody: "Service information including about, system, and commands sections",
+            description: "Returns service information and available commands."
+        },
+        {
+            name: "Ping All",
+            route: "/ping",
+            verb: "GET",
+            requestBody: "None",
+            responseBody: "Array of ping results for all configured devices",
+            description: "Pings all configured devices."
+        },
+        {
+            name: "Ping Target",
+            route: "/ping/:target",
+            verb: "GET",
+            requestBody: "None",
+            responseBody: "Ping result for the specified IP address",
+            description: "Pings the specified IP address and returns the result."
+        },
+        {
+            name: "Read Config",
+            route: "/read-config",
+            verb: "GET",
+            requestBody: "None",
+            responseBody: "Current YAML configuration loaded from disk",
+            description: "Reads the current configuration."
+        },
+        {
+            name: "Write Config",
+            route: "/write-config",
+            verb: "POST",
+            requestBody: "JSON object with keys: logLevel (string), alwaysLogErrors (boolean), apiPort (positive integer), intervalSecs (positive integer), devices (array of objects with source, ipAddress, deviceType)",
+            responseBody: "{ success: boolean, message: string }",
+            description: "Updates the configuration and reloads it."
+        },
+        {
+            name: "Reload Config",
+            route: "/reload-config",
+            verb: "GET",
+            requestBody: "None",
+            responseBody: "{ success: true, message: \"Configuration reloaded successfully\" }",
+            description: "Reloads the configuration from disk without changing the payload."
+        },
+        {
+            name: "Metrics",
+            route: "/metrics",
+            verb: "GET",
+            requestBody: "None",
+            responseBody: "Prometheus metrics in text format",
+            description: "Returns Prometheus metrics for scraped devices."
+        },
+        {
+            name: "Health",
+            route: "/health",
+            verb: "GET",
+            requestBody: "None",
+            responseBody: "{ status: \"healthy\", timestamp: \"ISO-date-string\" }",
+            description: "Health check endpoint for container orchestration."
+        },
+        {
+            name: "Endpoints",
+            route: "/endpoints",
+            verb: "GET",
+            requestBody: "None",
+            responseBody: "Object containing an array of endpoint details",
+            description: "Returns detailed information about each API endpoint."
+        }
+    ]
 };
 
 // **** PRIVATE Variables
@@ -151,7 +248,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     ip_pinger = pinger;
     log_writer = logger;
     start_date = startDate;
-    aboutInformation.system.startDate = startDate.toISOString();
+    aboutInformation.system.bootdate = startDate.toISOString();
 
     /**
      * @swagger
@@ -185,7 +282,9 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                 system:
      *                   type: object
      *                   properties:
-     *                     startDate:
+     *                     status:
+     *                       type: string
+     *                     bootdate:
      *                       type: string
      *                       format: date-time
      */
@@ -499,6 +598,42 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             timestamp: new Date().toISOString()
         });
     });
+
+    /**
+     * @swagger
+     * /endpoints:
+     *   get:
+     *     summary: Get API endpoint details.
+     *     description: Returns detailed information about each API endpoint including name, route, HTTP verb, request body expectations, and response format.
+     *     responses:
+     *       200:
+     *         description: Array of endpoint details
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 endpoints:
+     *                   type: array
+     *                   items:
+     *                     type: object
+     *                     properties:
+     *                       name:
+     *                         type: string
+     *                       route:
+     *                         type: string
+     *                       verb:
+     *                         type: string
+     *                       requestBody:
+     *                         type: string
+     *                       responseBody:
+     *                         type: string
+     *                       description:
+     *                         type: string
+     */
+    app.route("/endpoints").get((req: express.Request, res: express.Response) => {
+        res.type(Json).status(OK).json(getEndpoints());
+    });
 }
 
 // ******** PRIVATE Functions
@@ -507,6 +642,10 @@ function getAbout() {
     // log it
     // console.log removed for production
     return aboutInformation;
+}
+
+function getEndpoints() {
+    return endpointsInfo;
 }
 
 async function getPing(ipAddress: string): Promise<PingResult> {
