@@ -46,7 +46,7 @@ export class Pinger implements dli.IPinger {
     // ********
     // ******** ctor
 
-    constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger) {
+    constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger, startDate: Date) {
         Pinger.thisdude = this;
 
         // save parameters
@@ -95,7 +95,7 @@ export class Pinger implements dli.IPinger {
 
         // ******** SETUP ROUTES
 
-        createRoutes(this.express, this.configuration, this.config_str, this, this.logger);
+        createRoutes(this.express, this.configuration, this.config_str, this, this.logger, startDate);
 
         // ******** SETUP SWAGGER
 

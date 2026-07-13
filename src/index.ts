@@ -51,7 +51,7 @@ function initialize() {
     logger.write_debug(originator + ".initialize", `Starting the IP Pinger Application.`);
 
     // init pinger
-    pinger_dude = new Pinger(configuration, config_str, logger);
+    pinger_dude = new Pinger(configuration, config_str, logger, start_date);
 
     // log-it
     logger.write_info(originator + ".initialize", `IP Pinger Application initialized.`, start_date);

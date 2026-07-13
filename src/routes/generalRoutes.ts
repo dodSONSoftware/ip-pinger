@@ -47,6 +47,10 @@ type CommandsInfo = {
     help: HelpInfo;
 };
 
+type SystemInfo = {
+    startDate: string;
+};
+
 type AboutInfo = {
     name: string;
     version: string;
@@ -58,8 +62,12 @@ type AboutInfo = {
 
 type AboutInformation = {
     about: AboutInfo;
+    system: SystemInfo;
     commands: CommandsInfo;
 };
+
+// **** PRIVATE Variables for runtime state
+var start_date: Date;
 
 export const aboutInformation: AboutInformation = {
     about: {
@@ -69,6 +77,9 @@ export const aboutInformation: AboutInformation = {
         description: "Provides device ping information with hot-reload configuration support.",
         copyright: "Copyright (c) 2026 dodson Software ( dodson labs )",
         license: "MIT License"
+    },
+    system: {
+        startDate: new Date().toISOString()
     },
     commands: {
         "name": "General",
@@ -124,12 +135,14 @@ interface PingResult {
 
 // ******** CREATE Routes
 
-export function createRoutes(app: express.Application, config: IConfig, config_str: string, pinger: IPinger, logger: ILogger) {
+export function createRoutes(app: express.Application, config: IConfig, config_str: string, pinger: IPinger, logger: ILogger, startDate: Date) {
     // **** initialize
     configuration = config_str;
     configurationObj = config;
     ip_pinger = pinger;
     log_writer = logger;
+    start_date = startDate;
+    aboutInformation.system.startDate = startDate.toISOString();
 
     /**
      * @swagger
@@ -146,9 +159,26 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *               type: object
      *               properties:
      *                 about:
-     *                   type: string
-     *                 version:
-     *                   type: string
+     *                   type: object
+     *                   properties:
+     *                     name:
+     *                       type: string
+     *                     version:
+     *                       type: string
+     *                     author:
+     *                       type: string
+     *                     description:
+     *                       type: string
+     *                     copyright:
+     *                       type: string
+     *                     license:
+     *                       type: string
+     *                 system:
+     *                   type: object
+     *                   properties:
+     *                     startDate:
+     *                       type: string
+     *                       format: date-time
      */
     app.route("/about").get((req: express.Request, res: express.Response) => {
         res.type(Json).status(OK).json(getAbout());
