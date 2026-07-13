@@ -44,7 +44,7 @@ function initialize() {
     Logger.write_local_log(
         interfaces.LogLevel.Info,
         originator + ".initialize",
-        `Configuration loaded: ${config_str}`
+        `Configuration loaded:\n${config_str}`
     );
 
     // log-it

@@ -283,7 +283,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             Logger.write_local_log(
                 LogLevel.Info,
                 originator + ".read-config",
-                `Configuration loaded: ${config_text}`
+                `Configuration loaded:\n${config_text}`
             );
 
             res.type(Json).status(OK).json(newConfig);
@@ -372,7 +372,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 Logger.write_local_log(
                     LogLevel.Info,
                     originator + ".write-config",
-                    `Configuration reloaded: ${config_text}`
+                    `Configuration reloaded:\n${config_text}`
                 );
 
                 res.status(OK).json({ message: "Valid configuration data received. Configuration saved and hot-reloaded." });
@@ -415,7 +415,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             Logger.write_local_log(
                 LogLevel.Info,
                 originator + ".reload-config",
-                `Configuration reloaded: ${rawText}`
+                `Configuration reloaded:\n${rawText}`
             );
 
             log_writer.write_info("generalRoutes.reload-config", `Configuration reloaded successfully.`);
