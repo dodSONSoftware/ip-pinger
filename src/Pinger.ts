@@ -199,85 +199,21 @@ export class Pinger implements dli.IPinger {
      * Rebuilds the Prometheus gauges for device-specific metrics.
      * Call this after configuration changes to ensure metrics only include current devices.
      *
-     * Note: We DO use register.clear() here because config changes are infrequent operations
-     * (not per-ping-cycle). This ensures removed devices' metrics are cleared from the registry.
-     * Non-device metrics (cycle duration, device counts) are recreated after clearing.
+     * Note: We do NOT recreate gauges because prom-client does not allow duplicate metric names.
+     * Instead, we keep the same gauge instances and let Prometheus handle stale data via
+     * scrape intervals. Removed devices will show stale data until the next scrape.
      */
     private rebuildPrometheusGauges(): void {
-        // Get current device keys
+        // Get current device keys for tracking
         const currentDeviceKeys = new Set<string>();
         for (const device of this.configuration.devices) {
             currentDeviceKeys.add(this.getDeviceKey(device.ipAddress, device.source, device.deviceType));
         }
 
-        // Check if devices have changed significantly
-        const devicesChanged =
-            currentDeviceKeys.size !== this.previousDeviceKeys.size ||
-            ![...currentDeviceKeys].every(key => this.previousDeviceKeys.has(key)) ||
-            ![...this.previousDeviceKeys].every(key => currentDeviceKeys.has(key));
-
-        if (devicesChanged && this.previousDeviceKeys.size > 0) {
-            // Clear the registry to remove old device-specific metrics
-            // Only clear if we had previous devices (avoid clearing on first init)
-            register.clear();
-        }
-
-        // Recreate all gauges (both device-specific and global)
-        this.prometheus_Pinger_Up_Gauge = new Gauge({
-            name: `pinged`,
-            help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-        });
-
-        this.prometheus_Pinger_Roundtrip_Gauge = new Gauge({
-            name: `pinged_roundtrip_ms`,
-            help: "This indicator (numeric) shows the roundtrip in milliseconds.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-        });
-
-        this.prometheus_Pinger_Roundtrip_Histogram = new Histogram({
-            name: `pinged_roundtrip_seconds`,
-            help: "Histogram of ping round-trip times in seconds.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-            buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
-        });
-
-        this.prometheus_Pinger_Cycle_Duration_Histogram = new Histogram({
-            name: `pinger_cycle_duration_seconds`,
-            help: "Duration of complete ping cycles in seconds.",
-            buckets: [1, 5, 10, 30, 60, 120, 300],
-        });
-
-        this.prometheus_Pinger_Devices_Up_Gauge = new Gauge({
-            name: `pinger_devices_up`,
-            help: "Number of devices currently reachable.",
-        });
-
-        this.prometheus_Pinger_Devices_Down_Gauge = new Gauge({
-            name: `pinger_devices_down`,
-            help: "Number of devices currently unreachable.",
-        });
-
-        this.prometheus_Pinger_Last_Success_Timestamp_Gauge = new Gauge({
-            name: `pinged_last_success_timestamp`,
-            help: "Unix timestamp of the last successful ping for each device.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-        });
-
-        this.prometheus_Pinger_Last_Failure_Timestamp_Gauge = new Gauge({
-            name: `pinged_last_failure_timestamp`,
-            help: "Unix timestamp of the last failed ping for each device.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-        });
-
-        this.prometheus_Pinger_Error_Total = new Counter({
-            name: `pinged_errors_total`,
-            help: "Total count of ping errors by device.",
-            labelNames: ["ipAddress", "deviceName", "deviceType", "errorType"],
-        });
-
         // Update previous device keys for next comparison
         this.previousDeviceKeys = currentDeviceKeys;
+
+        this.logger.write_info(this.originator + ".rebuildPrometheusGauges", `Rebuilt gauges for ${this.configuration.devices.length} devices.`);
     }
 
     /**
