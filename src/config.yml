@@ -1,6 +1,5 @@
 logLevel: debug
 alwaysLogErrors: true
-prometheusPort: 9090
 apiPort: 3300
 intervalSecs: 30
 devices:

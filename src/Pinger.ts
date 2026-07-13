@@ -75,12 +75,6 @@ export class Pinger implements dli.IPinger {
         // init
         this.express = express();
 
-        // create endpoint for Prometheus to scrape metrics
-        this.express.get("/metrics", async (req: express.Request, res: express.Response) => {
-            res.set("Content-Type", register.contentType);
-            res.end(await register.metrics());
-        });
-
         // ******** SETUP MIDDLEWARE
 
         // add CORS
@@ -101,20 +95,10 @@ export class Pinger implements dli.IPinger {
 
         setupSwagger(this.express as express.Express);
 
-        // start the express server on prometheus port
-        const promServer = this.express.listen(this.configuration.prometheusPort, () => {
-            // log-it
-            this.logger.write_info(this.originator + ".ctor", `Express Server, for Prometheus, is running at http://localhost:${this.configuration.prometheusPort}`);
-            this.logger.write_info(this.originator + ".ctor", `Prometheus metrics can be found at http://localhost:${this.configuration.prometheusPort}/metrics`);
-        });
-
-        promServer.on('error', (err: Error) => {
-            this.logger.write_error(this.originator + ".ctor", `Prometheus server error: ${err.message}`);
-        });
-
-        // Also listen on API port for HTTP API endpoints
+        // Start the express server on API port for all endpoints including metrics
         const apiServer = this.express.listen(this.configuration.apiPort, () => {
             this.logger.write_info(this.originator + ".ctor", `API Server is running at http://localhost:${this.configuration.apiPort}`);
+            this.logger.write_info(this.originator + ".ctor", `Prometheus metrics can be found at http://localhost:${this.configuration.apiPort}/metrics`);
         });
 
         apiServer.on('error', (err: Error) => {

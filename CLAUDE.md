@@ -105,15 +105,13 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 | GET | `/about` | Service information and available commands |
 | GET | `/ping` | Pings all configured devices |
 | GET | `/ping/:target` | Pings specified IP address |
-| GET | `/metrics` | Prometheus scrape endpoint |
 | GET | `/read-config` | Reads current configuration |
 | POST | `/write-config` | Updates and reloads configuration |
 | GET | `/reload-config` | Reloads configuration from disk |
 
 ## Ports
 
-- **Prometheus metrics**: Port 9090 (default)
-- **HTTP API**: Port 3300 (default, configurable via `api_port`)
+- **HTTP API (includes metrics)**: Port 3300 (default, configurable via `api_port`)
 
 ## Swagger
 

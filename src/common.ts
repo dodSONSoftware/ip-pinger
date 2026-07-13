@@ -33,7 +33,6 @@ const DeviceSchema = z.object({
 const ConfigSchema = z.object({
     logLevel: z.enum(["debug", "info", "warn", "error"] as const),
     alwaysLogErrors: z.boolean(),
-    prometheusPort: z.number().int().positive(),
     apiPort: z.number().int().positive(),
     intervalSecs: z.number().int().positive(),
     devices: z.array(DeviceSchema),

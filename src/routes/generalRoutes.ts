@@ -11,6 +11,7 @@ import { LogLevel } from "../interfaces";
 import { Logger } from "../Logger";
 import { join } from "path";
 import { dump } from "js-yaml";
+import { register } from "prom-client";
 
 // CommonJS provides __dirname automatically
 
@@ -109,6 +110,10 @@ export const aboutInformation: AboutInformation = {
                 {
                     "route": "/reload-config",
                     "description": "Reloads the configuration from disk without changing the payload."
+                },
+                {
+                    "route": "/metrics",
+                    "description": "Returns Prometheus metrics for scraped devices."
                 }
             ]
         }
@@ -424,6 +429,26 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
         } catch (error) {
             res.status(_400).json({ message: `ERROR: Failed to reload configuration: ${ensureError(error).message}` });
         }
+    });
+
+    /**
+     * @swagger
+     * /metrics:
+     *   get:
+     *     summary: Returns Prometheus metrics.
+     *     description: Returns Prometheus metrics in text format for scraping by Prometheus.
+     *     responses:
+     *       200:
+     *         description: Prometheus metrics in text format
+     *         content:
+     *           text/plain:
+     *             schema:
+     *               type: string
+     */
+    app.route("/metrics").get(async (req: express.Request, res: express.Response) => {
+        const metrics = await register.metrics();
+        res.set("Content-Type", register.contentType);
+        res.end(metrics);
     });
 }
 

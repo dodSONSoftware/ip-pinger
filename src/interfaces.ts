@@ -87,7 +87,6 @@ export interface IConfig {
     [key: string]: unknown;
     logLevel: LogLevels;
     alwaysLogErrors: boolean;
-    prometheusPort: number;
     apiPort: number;
     intervalSecs: number;
     devices: IDevice[];
