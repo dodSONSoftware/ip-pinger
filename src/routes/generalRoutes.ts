@@ -9,7 +9,6 @@ import { ensureError, write_file, read_file_json } from "../systemFunctions";
 import type { ILogger, IPinger, IConfig, IDevice } from "../interfaces";
 import { LogLevel } from "../interfaces";
 import { Logger } from "../Logger";
-import { readFileSync } from "fs";
 import { join } from "path";
 import { dump } from "js-yaml";
 

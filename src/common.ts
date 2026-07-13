@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { IConfig, IDevice, ILogger, LogLevels } from "./interfaces";
+import type { IConfig, ILogger, LogLevels } from "./interfaces";
 import { LogLevel } from "./interfaces";
 import { readFileSync } from "fs";
 import { z } from "zod";
-import { getEnvironmentVariable, ensureError } from "./systemFunctions";
+import { ensureError } from "./systemFunctions";
 import { load } from "js-yaml";
 
 // Config file path - must be set via CONFIG_PATH environment variable
@@ -72,10 +72,10 @@ export class NoOpLogger implements ILogger {
     global_log_level_string(): string {
         return "None";
     }
-    write_info(_originator: string, _message: string, _start_date?: Date | null | undefined): void {}
-    write_warn(_originator: string, _message: string, _start_date?: Date | null | undefined): void {}
-    write_error(_originator: string, _message: string, _start_date?: Date | null | undefined): void {}
-    write_debug(_originator: string, _message: string, _start_date?: Date | null | undefined): void {}
+    write_info(_originator: string, _message: string, _start_date?: Date | null | undefined): void { }
+    write_warn(_originator: string, _message: string, _start_date?: Date | null | undefined): void { }
+    write_error(_originator: string, _message: string, _start_date?: Date | null | undefined): void { }
+    write_debug(_originator: string, _message: string, _start_date?: Date | null | undefined): void { }
 }
 
 export function loadConfig(logger?: ILogger): [IConfig, string] {
