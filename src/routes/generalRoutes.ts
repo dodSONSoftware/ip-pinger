@@ -114,6 +114,10 @@ export const aboutInformation: AboutInformation = {
                 {
                     "route": "/metrics",
                     "description": "Returns Prometheus metrics for scraped devices."
+                },
+                {
+                    "route": "/health",
+                    "description": "Health check endpoint for container orchestration."
                 }
             ]
         }
@@ -357,6 +361,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
 
                 if (!writeSuccess.success) {
                     res.status(_400).json({
+                        success: false,
                         message: writeSuccess.error || `ERROR: Failed to write configuration file.`
                     });
                     return;
@@ -380,13 +385,23 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                     `Configuration reloaded:\n${config_text}`
                 );
 
-                res.status(OK).json({ message: "Valid configuration data received. Configuration saved and hot-reloaded." });
+                res.status(OK).json({
+                    success: true,
+                    message: "Configuration updated successfully"
+                });
 
             } else {
-                res.status(_400).json({ message: "VALIDATION ERROR: Invalid configuration data received.", errors: validData.errors });
+                res.status(_400).json({
+                    success: false,
+                    message: `VALIDATION ERROR: Invalid configuration data received.`,
+                    errors: validData.errors
+                });
             }
         } catch (error) {
-            res.status(_400).json({ message: `ERROR: Invalid configuration data received: ${ensureError(error).message}` });
+            res.status(_400).json({
+                success: false,
+                message: `ERROR: Invalid configuration data received: ${ensureError(error).message}`
+            });
         }
     });
 
@@ -424,10 +439,16 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             );
 
             log_writer.write_info("generalRoutes.reload-config", `Configuration reloaded successfully.`);
-            res.status(OK).json({ message: "Configuration reloaded successfully." });
+            res.status(OK).json({
+                success: true,
+                message: "Configuration reloaded successfully"
+            });
 
         } catch (error) {
-            res.status(_400).json({ message: `ERROR: Failed to reload configuration: ${ensureError(error).message}` });
+            res.status(_400).json({
+                success: false,
+                message: `ERROR: Failed to reload configuration: ${ensureError(error).message}`
+            });
         }
     });
 
@@ -449,6 +470,34 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
         const metrics = await register.metrics();
         res.set("Content-Type", register.contentType);
         res.end(metrics);
+    });
+
+    /**
+     * @swagger
+     * /health:
+     *   get:
+     *     summary: Health check endpoint.
+     *     description: Returns health status for container orchestration (Kubernetes liveness/readiness probes).
+     *     responses:
+     *       200:
+     *         description: Service is healthy
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 status:
+     *                   type: string
+     *                   example: "healthy"
+     *                 timestamp:
+     *                   type: string
+     *                   format: date-time
+     */
+    app.route("/health").get((req: express.Request, res: express.Response) => {
+        res.type(Json).status(OK).json({
+            status: "healthy",
+            timestamp: new Date().toISOString()
+        });
     });
 }
 
