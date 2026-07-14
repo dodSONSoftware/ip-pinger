@@ -1,5 +1,9 @@
 # IP Pinger Service
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.1+-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-22.22.0-green.svg)](https://nodejs.org/)
+
 A scheduled service that pings configured devices on your network and publishes results to Prometheus metrics for monitoring.
 
 ## Overview
@@ -60,7 +64,7 @@ Or manually with Docker:
 
 ```bash
 docker build -t ip-pinger .
-docker run -p 3300:3300 -p 9090:9090 \
+docker run -p 3300:3300 \
   --cap-add=NET_RAW --cap-add=NET_ADMIN \
   -v /path/to/config.yml:/app/config.yml \
   ip-pinger
@@ -74,7 +78,6 @@ Create a `config.yml` file in the root directory:
 logLevel: debug
 alwaysLogErrors: true
 apiPort: 3300
-prometheusPort: 9090
 intervalSecs: 30
 devices:
   - source: "Device Name"
@@ -88,8 +91,7 @@ devices:
 |--------|-------------|---------|
 | `logLevel` | Logging verbosity: none, info, warn, error, debug | `info` |
 | `alwaysLogErrors` | Log all errors regardless of level | `false` |
-| `apiPort` | HTTP API port (includes Swagger UI) | `3300` |
-| `prometheusPort` | Prometheus metrics port | `9090` |
+| `apiPort` | HTTP API port (includes Swagger UI and Prometheus metrics) | `3300` |
 | `intervalSecs` | Ping cycle interval in seconds | `60` |
 | `devices` | Array of devices to ping | required |
 

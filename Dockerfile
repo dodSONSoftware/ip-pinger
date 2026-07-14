@@ -50,7 +50,6 @@ COPY --from=builder /app/dist ./dist
 
 # Expose the application ports
 EXPOSE 3300
-EXPOSE 9090
 
 # Grant raw socket capabilities to Node.js binary (Linux capability approach)
 # This allows raw sockets without running as root
@@ -59,9 +58,9 @@ RUN setcap cap_net_raw+ep $(readlink -f $(which node))
 # Run as non-root user for better security
 USER node
 
-# Health check - probe the metrics endpoint
+# Health check - probe the health endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -sf http://localhost:9090/metrics || exit 1
+  CMD curl -sf http://localhost:3300/health || exit 1
 
 # Command to run the application
 CMD ["node", "dist/index.js"]

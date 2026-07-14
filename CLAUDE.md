@@ -84,7 +84,6 @@ while (true):
 ```yaml
 log-level: debug
 always-log-errors: true
-prometheus-port: 9090
 api-port: 3300
 interval-secs: 60
 devices:

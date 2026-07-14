@@ -25,7 +25,6 @@ describe("loadConfig", () => {
         const tempConfig = `
 logLevel: debug
 alwaysLogErrors: true
-prometheusPort: 9090
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -39,7 +38,6 @@ devices:
 
         expect(config.logLevel).toBe("debug");
         expect(config.alwaysLogErrors).toBe(true);
-        expect(config.prometheusPort).toBe(9090);
         expect(config.apiPort).toBe(3300);
         expect(config.intervalSecs).toBe(30);
         expect(config.devices).toHaveLength(1);
@@ -55,7 +53,6 @@ devices:
         const tempConfig = `
 logLevel: info
 alwaysLogErrors: false
-prometheusPort: 9090
 apiPort: 3300
 intervalSecs: 60
 devices:
@@ -85,7 +82,6 @@ describe("validateConfig", () => {
         const yaml = `
 logLevel: debug
 alwaysLogErrors: true
-prometheusPort: 9090
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -123,7 +119,6 @@ logLevel: debug
         const invalidData = `
 logLevel: invalid-level
 alwaysLogErrors: true
-prometheusPort: 9090
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -145,7 +140,6 @@ devices:
         const invalidDeviceType = `
 logLevel: debug
 alwaysLogErrors: true
-prometheusPort: 9090
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -163,7 +157,6 @@ devices:
         const validTypes = `
 logLevel: debug
 alwaysLogErrors: true
-prometheusPort: 9090
 apiPort: 3300
 intervalSecs: 30
 devices:
