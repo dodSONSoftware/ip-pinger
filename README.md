@@ -1,0 +1,174 @@
+# IP Pinger Service
+
+A scheduled service that pings configured devices on your network and publishes results to Prometheus metrics for monitoring.
+
+## Overview
+
+The IP Pinger service periodically sends ICMP echo requests to a list of configured devices and tracks:
+
+- Device availability (up/down status)
+- Round-trip time (RTT) in milliseconds
+- Error counts by type (timeout, host unreachable, etc.)
+- Timestamps of last success/failure
+
+Results are exposed via Prometheus-compatible metrics at the `/metrics` endpoint.
+
+## Features
+
+- **Scheduled pinging**: Configurable polling interval (default: 30 seconds)
+- **Prometheus metrics**: Full metric suite including histograms for latency distribution
+- **Hot-reload configuration**: Update device lists and settings without restarting
+- **Docker-ready**: Optimized multi-stage Docker build with minimal image size
+- **Health checks**: Built-in Kubernetes/Docker health check endpoint
+
+## Quick Start
+
+### Prerequisites
+
+- Node.js >= 22.0.0 (uses Volta: `node 22.22.0`)
+- npm >= 10.0.0
+
+### Running Locally
+
+```bash
+# Install dependencies
+npm install
+
+# Build the TypeScript code
+npm run build
+
+# Start the service
+npm start
+```
+
+For development with auto-reload:
+
+```bash
+npm run dev
+```
+
+### Using Docker
+
+Build and run with Docker Compose:
+
+```bash
+# Ensure your config.yml is mounted at /mnt/ip-pinger-data/config.yml
+docker-compose up -d
+```
+
+Or manually with Docker:
+
+```bash
+docker build -t ip-pinger .
+docker run -p 3300:3300 -p 9090:9090 \
+  --cap-add=NET_RAW --cap-add=NET_ADMIN \
+  -v /path/to/config.yml:/app/config.yml \
+  ip-pinger
+```
+
+## Configuration
+
+Create a `config.yml` file in the root directory:
+
+```yaml
+logLevel: debug
+alwaysLogErrors: true
+apiPort: 3300
+prometheusPort: 9090
+intervalSecs: 30
+devices:
+  - source: "Device Name"
+    ipAddress: "192.168.1.100"
+    deviceType: sensor|controller|kiosk
+```
+
+### Configuration Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `logLevel` | Logging verbosity: none, info, warn, error, debug | `info` |
+| `alwaysLogErrors` | Log all errors regardless of level | `false` |
+| `apiPort` | HTTP API port (includes Swagger UI) | `3300` |
+| `prometheusPort` | Prometheus metrics port | `9090` |
+| `intervalSecs` | Ping cycle interval in seconds | `60` |
+| `devices` | Array of devices to ping | required |
+
+### Hot-Reload Configuration
+
+Configuration can be updated at runtime:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/read-config` | GET | Returns current configuration |
+| `/write-config` | POST | Updates configuration from request body |
+| `/reload-config` | GET | Reloads configuration from disk |
+
+## API Endpoints
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/about` | Service information and version |
+| GET | `/ping` | Trigger immediate ping of all devices |
+| GET | `/ping/:target` | Ping a specific IP address |
+| GET | `/read-config` | Read current configuration |
+| POST | `/write-config` | Update and reload configuration |
+| GET | `/reload-config` | Reload configuration from disk |
+| GET | `/swagger` | Interactive API documentation |
+| GET | `/metrics` | Prometheus metrics endpoint |
+
+## Prometheus Metrics
+
+### Device Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `pinged` | Gauge | `ipAddress`, `deviceName`, `deviceType` | 1 if device responds, 0 otherwise |
+| `pinged_roundtrip_ms` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Latest round-trip time in ms |
+| `pinged_last_success_timestamp` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Unix timestamp of last successful ping |
+| `pinged_last_failure_timestamp` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Unix timestamp of last failed ping |
+
+### Latency Distribution
+
+| Metric | Type | Labels | Buckets |
+|--------|------|--------|---------|
+| `pinged_roundtrip_seconds` | Histogram | `ipAddress`, `deviceName`, `deviceType` | 1ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1000ms (+Inf) |
+
+### System Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `pinger_cycle_duration_seconds` | Histogram | Duration of complete ping cycles (1s, 5s, 10s, 30s, 60s, 120s, 300s) |
+| `pinger_devices_up` | Gauge | Number of devices currently reachable |
+| `pinger_devices_down` | Gauge | Number of devices currently unreachable |
+
+### Error Tracking
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `pinged_errors_total` | Counter | `ipAddress`, `deviceName`, `deviceType`, `errorType` | Total errors by type |
+
+Error types: `timeout`, `host_unreachable`, `network_unreachable`, `ttl_exceeded`, `other`
+
+## Development
+
+```bash
+# Run linter
+npm run lint
+
+# Run tests
+npm test
+
+# Run tests with coverage
+npm run test:coverage
+
+# Watch mode for tests
+npm run test:watch
+```
+
+## License
+
+MIT License - See [LICENSE](LICENSE) for details.
+
+## Author
+
+Copyright (c) 2026 dodson Software (dodson labs)
