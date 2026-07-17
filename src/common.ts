@@ -27,7 +27,7 @@ const ipRegex = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 const DeviceSchema = z.object({
     source: z.string(),
     ipAddress: z.string().regex(ipRegex, "Invalid IP address"),
-    deviceType: z.enum(["sensor", "controller", "kiosk"]),
+    deviceType: z.enum(["sensor", "server", "kiosk"]),
 });
 
 const ConfigSchema = z.object({

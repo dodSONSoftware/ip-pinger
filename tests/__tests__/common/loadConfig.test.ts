@@ -61,7 +61,7 @@ devices:
     deviceType: sensor
   - source: Device 2
     ipAddress: "192.168.1.2"
-    deviceType: controller
+    deviceType: server
   - source: Device 3
     ipAddress: "192.168.1.3"
     deviceType: kiosk
@@ -163,9 +163,9 @@ devices:
   - source: Sensor
     ipAddress: "192.168.1.1"
     deviceType: sensor
-  - source: Controller
+  - source: Server
     ipAddress: "192.168.1.2"
-    deviceType: controller
+    deviceType: server
   - source: Kiosk
     ipAddress: "192.168.1.3"
     deviceType: kiosk

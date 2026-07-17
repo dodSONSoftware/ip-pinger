@@ -1,8 +1,10 @@
 # IP Pinger Service
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.1+-blue.svg)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-22.22.0-green.svg)](https://nodejs.org/)
+
+[![CI](https://img.shields.io/github/actions/workflow/status/dodson-labs/ip-pinger/ci.yml?branch=main&label=CI)](https://github.com/dodson-labs/ip-pinger/actions)
 
 A scheduled service that pings configured devices on your network and publishes results to Prometheus metrics for monitoring.
 
@@ -14,23 +16,24 @@ The IP Pinger service periodically sends ICMP echo requests to a list of configu
 - Round-trip time (RTT) in milliseconds
 - Error counts by type (timeout, host unreachable, etc.)
 - Timestamps of last success/failure
+- Latency distribution histograms
 
 Results are exposed via Prometheus-compatible metrics at the `/metrics` endpoint.
 
 ## Features
 
-- **Scheduled pinging**: Configurable polling interval (default: 30 seconds)
+- **Scheduled pinging**: Configurable polling interval
 - **Prometheus metrics**: Full metric suite including histograms for latency distribution
 - **Hot-reload configuration**: Update device lists and settings without restarting
-- **Docker-ready**: Optimized multi-stage Docker build with minimal image size
-- **Health checks**: Built-in Kubernetes/Docker health check endpoint
+- **Swagger UI**: Interactive API documentation at `/swagger`
+- **Multi-port support**: Combined API and metrics on single port
 
 ## Quick Start
 
 ### Prerequisites
 
-- Node.js >= 22.0.0 (uses Volta: `node 22.22.0`)
-- npm >= 10.0.0
+- Node.js >= 22.22.0 ([Volta](https://volta.sh/) managed)
+- npm >= 10.9.4
 
 ### Running Locally
 
@@ -53,26 +56,17 @@ npm run dev
 
 ### Using Docker
 
-Build and run with Docker Compose:
-
-```bash
-# Ensure your config.yml is mounted at /mnt/ip-pinger-data/config.yml
-docker-compose up -d
-```
-
-Or manually with Docker:
-
 ```bash
 docker build -t ip-pinger .
 docker run -p 3300:3300 \
   --cap-add=NET_RAW --cap-add=NET_ADMIN \
-  -v /path/to/config.yml:/app/config.yml \
+  -v $(pwd)/src/config.yml:/app/config.yml \
   ip-pinger
 ```
 
 ## Configuration
 
-Create a `config.yml` file in the root directory:
+Create or modify `src/config.yml`:
 
 ```yaml
 logLevel: debug
@@ -82,18 +76,26 @@ intervalSecs: 30
 devices:
   - source: "Device Name"
     ipAddress: "192.168.1.100"
-    deviceType: sensor|controller|kiosk
+    deviceType: sensor|server|kiosk
 ```
 
 ### Configuration Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `logLevel` | Logging verbosity: none, info, warn, error, debug | `info` |
-| `alwaysLogErrors` | Log all errors regardless of level | `false` |
-| `apiPort` | HTTP API port (includes Swagger UI and Prometheus metrics) | `3300` |
-| `intervalSecs` | Ping cycle interval in seconds | `60` |
-| `devices` | Array of devices to ping | required |
+| Option | Description | Default | Valid Values |
+|--------|-------------|---------|--------------|
+| `logLevel` | Logging verbosity | `info` | `debug`, `info`, `warn`, `error` |
+| `alwaysLogErrors` | Log all errors regardless of level | `false` | `true`, `false` |
+| `apiPort` | HTTP API port | `3300` | Positive integer |
+| `intervalSecs` | Ping cycle interval | `60` | Positive integer |
+| `devices` | Array of devices to ping | required | Array of device objects |
+
+### Device Types
+
+| Type | Description |
+|------|-------------|
+| `sensor` | IoT sensors and similar devices |
+| `server` | Servers and network infrastructure |
+| `kiosk` | Public-facing kiosks and displays |
 
 ### Hot-Reload Configuration
 
@@ -120,12 +122,12 @@ Configuration can be updated at runtime:
 
 ## Prometheus Metrics
 
-### Device Metrics
+### Device Status Metrics
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `pinged` | Gauge | `ipAddress`, `deviceName`, `deviceType` | 1 if device responds, 0 otherwise |
-| `pinged_roundtrip_ms` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Latest round-trip time in ms |
+| `pinged_roundtrip_ms` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Latest round-trip time in milliseconds |
 | `pinged_last_success_timestamp` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Unix timestamp of last successful ping |
 | `pinged_last_failure_timestamp` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Unix timestamp of last failed ping |
 
@@ -166,6 +168,17 @@ npm run test:coverage
 # Watch mode for tests
 npm run test:watch
 ```
+
+## Recent Changes
+
+| Version | Changes |
+|---------|---------|
+| v1.9.5 | Remove unused port 9090 references |
+| v1.9.4 | Add README.md documentation |
+| v1.9.3 | Fix 'metric already registered' error on config reload |
+| v1.9.2 | Properly remove extra/missing metrics on config change |
+| v1.9.1 | Prevent memory leak in rebuildPrometheusGauges() |
+| v1.9.0 | Add histogram metrics and additional Prometheus telemetry |
 
 ## License
 

@@ -2,45 +2,65 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Overview
+## Scope
 
-An Express-based IP network pinger service written in TypeScript. Periodically pings configured devices and exposes Prometheus metrics for monitoring.
+Claude Code will remain within this directory (`ip-pinger`) and its subdirectories.
 
-## Running / Deploying
+## Directory Organization
 
+```
+/home/worker/Documents/code/sensor-services/sensors-services-and-webapps/services-code/ip-pinger/
+├── src/                  # Source code
+│   ├── index.ts          # Entry point: initialize() → infinite loop calling run()
+│   ├── Pinger.ts         # Core pinger class using net-ping library
+│   ├── Logger.ts         # Logging utility with configurable levels
+│   ├── common.ts         # Configuration loading with Zod validation
+│   ├── interfaces.ts     # TypeScript interfaces
+│   ├── systemFunctions.ts # Utility functions
+│   └── swagger.ts        # Swagger UI setup
+├── tests/__tests__/      # Jest test files
+├── dist/                 # Compiled output (generated)
+├── config.yml            # Runtime configuration (YAML format)
+└── package.json          # Dependencies and scripts
+```
+
+## Active Project
+
+### IP Pinger Service — Network Device Monitoring
+
+An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
+
+**Commands:**
 ```bash
 npm run build   # Compile TypeScript and copy config.yml to dist/
 npm start       # Run compiled app: node ./dist/index.js
-npm run dev     # Hot-reload dev: nodemon --watch src --exec ts-node src/index.ts
+npm run dev     # Development mode with hot reload: nodemon + ts-node
 npm test        # Run Jest tests
 npm run lint    # Run ESLint
 ```
 
-## Project Structure
+**Architecture:**
+- Single Express server on configurable port (default 3300)
+- Scheduled ping loop using net-ping library
+- Prometheus gauge/histogram metrics for ping status and timing
+- YAML configuration with Zod validation
+- Hot-reload configuration support
 
-```
-src/
-├── index.ts              -- Entry point: initialize() → infinite loop calling run()
-├── Pinger.ts             -- Core pinger class using net-ping library
-├── Logger.ts             -- Logging utility with configurable levels (None, Info, Warn, Error, Debug)
-├── common.ts             -- Configuration loading with Zod validation
-├── interfaces.ts         -- TypeScript interfaces (IPinger, ILogger, IConfig, IDevice)
-├── systemFunctions.ts    -- Utility functions (get_timestamp, sleep, sleep_from_start, ensureError)
-├── swagger.ts            -- Swagger UI setup
-├── routes/
-│   └── generalRoutes.ts  -- Express route handlers
-├── config.yml            -- Runtime configuration (YAML format)
-└── package.json          -- Dependencies and scripts
-```
+**Key Files:**
+- `src/index.ts` — DI bootstrap, config load, middleware setup, route registration
+- `src/Pinger.ts` — Core pinger class with net-ping session management
+- `src/common.ts` — Configuration loading with Zod schema validation
+- `src/config.yml` — Runtime configuration (YAML format)
 
 ## Architecture
 
 ### Boot Sequence
-1. `initialize()` reads `config.yml` into global `configuration` map
-2. Creates `Logger` instance with configuration
-3. Creates `Pinger` instance with configuration and logger
-4. Express servers start on both Prometheus and API ports
-5. Enters infinite loop calling `pinger_dude.run()`
+1. `initialize()` reads `CONFIG_PATH` environment variable
+2. Loads `config.yml` into global `configuration` map
+3. Creates `Logger` instance with configuration
+4. Creates `Pinger` instance with configuration and logger
+5. Express servers start on Prometheus/API port
+6. Enters infinite loop calling `pinger_dude.run()`
 
 ### Pinger Loop (`Pinger.ts`)
 ```
@@ -82,14 +102,14 @@ while (true):
 
 ### Configuration (`config.yml`)
 ```yaml
-log-level: debug
-always-log-errors: true
-api-port: 3300
-interval-secs: 60
+logLevel: debug
+alwaysLogErrors: true
+apiPort: 3300
+intervalSecs: 60
 devices:
   - source: "device-name"
-    ip-address: "192.168.1.100"
-    device-type: sensor|controller|kiosk
+    ipAddress: "192.168.1.100"
+    deviceType: sensor|server|kiosk
 ```
 
 ### Hot-Reload Configuration
@@ -100,7 +120,7 @@ Configuration can be updated at runtime without restarting the service:
 - **POST `/write-config`** — Updates configuration from request body and reloads it
 - **GET `/reload-config`** — Reloads configuration from disk without changing payload
 
-Note: Configuration is now stored in YAML format (`config.yml`) instead of JSON.
+Note: Configuration is stored in YAML format (`src/config.yml`) instead of JSON.
 
 The `Pinger.updateConfig()` method allows runtime configuration updates via the route handlers.
 
@@ -111,10 +131,11 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 - **Net-ping library:** Uses `createSession()` with IPv4, 16-byte packets, 1 retry, 2s timeout, 128 TTL
 - **Promise-based pinging:** `pingHost()` wrapped in Promise for async/await compatibility
 - **Prometheus gauges:** Separate gauges for up status and round-trip time
+- **Zod validation:** Schema-based config validation with readable error messages
 
 ## Development
 
-- **Node >= 22 required** (Volta pinned to 22.22.0)
+- **Node >= 22.22.0 required** (Volta pinned)
 - **TypeScript 5.x** with strict mode enabled
 - **Dependencies:** express, cors, body-parser, net-ping, prom-client, zod, swagger-jsdoc, swagger-ui-express, js-yaml
 - **Dev dependencies:** @types/* packages, nodemon, ts-node-dev, jest, ts-jest
@@ -129,14 +150,12 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 | GET | `/read-config` | Reads current configuration |
 | POST | `/write-config` | Updates and reloads configuration |
 | GET | `/reload-config` | Reloads configuration from disk |
+| GET | `/swagger` | Swagger UI for API documentation |
+| GET | `/metrics` | Prometheus metrics endpoint |
 
 ## Ports
 
-- **HTTP API (includes metrics)**: Port 3300 (default, configurable via `api_port`)
-
-## Swagger
-
-- **GET `/swagger`** — Swagger UI for API documentation (auto-generated from JSDoc comments)
+- **HTTP API (includes metrics)**: Port 3300 (default, configurable via `apiPort`)
 
 ## Testing
 

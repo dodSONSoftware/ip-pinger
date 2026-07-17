@@ -3,15 +3,30 @@ alwaysLogErrors: true
 apiPort: 3300
 intervalSecs: 30
 devices:
-  - source: "Air Light 1"
-    ipAddress: "10.10.10.166"
-    deviceType: sensor
-  - source: Outdoor
-    ipAddress: "10.10.10.142"
+  - source: Air Light 1
+    ipAddress: 10.10.10.166
     deviceType: sensor
   - source: Pool
-    ipAddress: "192.168.1.198"
+    ipAddress: 10.10.10.161
     deviceType: sensor
-  - source: Winter Room
-    ipAddress: "192.168.1.236"
+  - source: Dude
+    ipAddress: 10.10.10.10
+    deviceType: server
+  - source: PiHole 1
+    ipAddress: 10.10.10.2
+    deviceType: server
+  - source: PiHole 2
+    ipAddress: 10.10.10.3
+    deviceType: server
+  - source: Air 1
+    ipAddress: 10.10.10.171
     deviceType: sensor
+  - source: Air 2
+    ipAddress: 10.10.10.142
+    deviceType: sensor
+  - source: Kiosk-Patio
+    ipAddress: 10.10.10.87
+    deviceType: kiosk
+  - source: Kiosk-Kitchen
+    ipAddress: 10.10.10.88
+    deviceType: kiosk
