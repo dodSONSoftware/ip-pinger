@@ -40,16 +40,16 @@ export class Pinger implements dli.IPinger {
     private readonly ip_pinger: Session;
     private readonly express: express.Application;
     // ----
-    private prometheus_Pinger_Up_Gauge: Gauge;
-    private prometheus_Pinger_Roundtrip_Gauge: Gauge;
-    private prometheus_Pinger_Roundtrip_Histogram: Histogram;
+    private prometheus_Pinger_Up_Gauge!: Gauge;
+    private prometheus_Pinger_Roundtrip_Gauge!: Gauge;
+    private prometheus_Pinger_Roundtrip_Histogram!: Histogram;
     // Additional metrics
     private prometheus_Pinger_Cycle_Duration_Histogram: Histogram;
     private prometheus_Pinger_Devices_Up_Gauge: Gauge;
     private prometheus_Pinger_Devices_Down_Gauge: Gauge;
-    private prometheus_Pinger_Last_Success_Timestamp_Gauge: Gauge;
-    private prometheus_Pinger_Last_Failure_Timestamp_Gauge: Gauge;
-    private prometheus_Pinger_Error_Total: Counter;
+    private prometheus_Pinger_Last_Success_Timestamp_Gauge!: Gauge;
+    private prometheus_Pinger_Last_Failure_Timestamp_Gauge!: Gauge;
+    private prometheus_Pinger_Error_Total!: Counter;
 
     // ********
     // ******** ctor
@@ -64,36 +64,13 @@ export class Pinger implements dli.IPinger {
 
         // ******** CREATE PROMETHEUS GAUGES
 
-        // create a gauge for device
-        this.prometheus_Pinger_Up_Gauge = new Gauge({
-            name: `pinged`,
-            help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-        });
-
-        // create a gauge for device
-        this.prometheus_Pinger_Roundtrip_Gauge = new Gauge({
-            name: `pinged_roundtrip_ms`,
-            help: "This indicator (numeric) shows the roundtrip in milliseconds.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-        });
-
-        // create a histogram for roundtrip distribution
-        this.prometheus_Pinger_Roundtrip_Histogram = new Histogram({
-            name: `pinged_roundtrip_seconds`,
-            help: "Histogram of ping round-trip times in seconds.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-            buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
-        });
-
-        // create histogram for pinger cycle duration
+        // System-level gauges (no labels, persist across config reloads)
         this.prometheus_Pinger_Cycle_Duration_Histogram = new Histogram({
             name: `pinger_cycle_duration_seconds`,
             help: "Duration of complete ping cycles in seconds.",
             buckets: [1, 5, 10, 30, 60, 120, 300],
         });
 
-        // create gauges for device counts
         this.prometheus_Pinger_Devices_Up_Gauge = new Gauge({
             name: `pinger_devices_up`,
             help: "Number of devices currently reachable.",
@@ -104,25 +81,8 @@ export class Pinger implements dli.IPinger {
             help: "Number of devices currently unreachable.",
         });
 
-        // create gauges for last success/failure timestamps
-        this.prometheus_Pinger_Last_Success_Timestamp_Gauge = new Gauge({
-            name: `pinged_last_success_timestamp`,
-            help: "Unix timestamp of the last successful ping for each device.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-        });
-
-        this.prometheus_Pinger_Last_Failure_Timestamp_Gauge = new Gauge({
-            name: `pinged_last_failure_timestamp`,
-            help: "Unix timestamp of the last failed ping for each device.",
-            labelNames: ["ipAddress", "deviceName", "deviceType"],
-        });
-
-        // create counter for ping errors
-        this.prometheus_Pinger_Error_Total = new Counter({
-            name: `pinged_errors_total`,
-            help: "Total count of ping errors by device.",
-            labelNames: ["ipAddress", "deviceName", "deviceType", "errorType"],
-        });
+        // Device-specific gauges (with labels, recreated on config reload)
+        this.createAllDeviceGauges();
 
         // ******** SETUP EXPRESS
 
@@ -196,19 +156,116 @@ export class Pinger implements dli.IPinger {
     }
 
     /**
+     * Removes metrics for devices that are no longer in the configuration.
+     * Call this after configuration changes to clean up orphaned metrics.
+     *
+     * Uses register.clear() followed by re-registering system-level gauges
+     * and recreating device-specific gauges.
+     * This is safe to do during config reload (not every ping cycle).
+     */
+    private cleanupOrphanedGauges(currentDeviceKeys: Set<string>): void {
+        // Find keys that were removed
+        const removedKeys = [...this.previousDeviceKeys].filter(key => !currentDeviceKeys.has(key));
+
+        this.logger.write_debug(this.originator + ".cleanupOrphanedGauges", `Previous keys: ${[...this.previousDeviceKeys].join(", ")}`);
+        this.logger.write_debug(this.originator + ".cleanupOrphanedGauges", `Current keys: ${[...currentDeviceKeys].join(", ")}`);
+        this.logger.write_debug(this.originator + ".cleanupOrphanedGauges", `Removed keys: ${removedKeys.join(", ")}`);
+
+        if (removedKeys.length === 0) {
+            this.logger.write_debug(this.originator + ".cleanupOrphanedGauges", `No devices to remove.`);
+            return;
+        }
+
+        this.logger.write_info(this.originator + ".cleanupOrphanedGauges", `Removing ${removedKeys.length} orphaned device(s).`);
+
+        // Clear all metrics
+        // This ensures removed devices' metrics are completely purged
+        register.clear();
+
+        // Re-register system-level gauges (these don't have labels, so they persist across reloads)
+        this.prometheus_Pinger_Cycle_Duration_Histogram = new Histogram({
+            name: `pinger_cycle_duration_seconds`,
+            help: "Duration of complete ping cycles in seconds.",
+            buckets: [1, 5, 10, 30, 60, 120, 300],
+        });
+
+        this.prometheus_Pinger_Devices_Up_Gauge = new Gauge({
+            name: `pinger_devices_up`,
+            help: "Number of devices currently reachable.",
+        });
+
+        this.prometheus_Pinger_Devices_Down_Gauge = new Gauge({
+            name: `pinger_devices_down`,
+            help: "Number of devices currently unreachable.",
+        });
+
+        // Re-create gauges for all current devices
+        this.createAllDeviceGauges();
+
+        this.logger.write_info(this.originator + ".cleanupOrphanedGauges", `Cleanup complete. ${this.configuration.devices.length} devices remaining.`);
+    }
+
+    /**
+     * Creates all device-specific Prometheus gauges.
+     */
+    private createAllDeviceGauges(): void {
+        // Create a gauge for device status
+        this.prometheus_Pinger_Up_Gauge = new Gauge({
+            name: `pinged`,
+            help: "This indicator (boolean) shows whether a device has responded, or not, to a ping request.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+        });
+
+        // Create a gauge for device round-trip time
+        this.prometheus_Pinger_Roundtrip_Gauge = new Gauge({
+            name: `pinged_roundtrip_ms`,
+            help: "This indicator (numeric) shows the roundtrip in milliseconds.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+        });
+
+        // Create a histogram for roundtrip distribution
+        this.prometheus_Pinger_Roundtrip_Histogram = new Histogram({
+            name: `pinged_roundtrip_seconds`,
+            help: "Histogram of ping round-trip times in seconds.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+            buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+        });
+
+        // Create gauges for last success/failure timestamps
+        this.prometheus_Pinger_Last_Success_Timestamp_Gauge = new Gauge({
+            name: `pinged_last_success_timestamp`,
+            help: "Unix timestamp of the last successful ping for each device.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+        });
+
+        this.prometheus_Pinger_Last_Failure_Timestamp_Gauge = new Gauge({
+            name: `pinged_last_failure_timestamp`,
+            help: "Unix timestamp of the last failed ping for each device.",
+            labelNames: ["ipAddress", "deviceName", "deviceType"],
+        });
+
+        // Create counter for ping errors
+        this.prometheus_Pinger_Error_Total = new Counter({
+            name: `pinged_errors_total`,
+            help: "Total count of ping errors by device.",
+            labelNames: ["ipAddress", "deviceName", "deviceType", "errorType"],
+        });
+    }
+
+    /**
      * Rebuilds the Prometheus gauges for device-specific metrics.
      * Call this after configuration changes to ensure metrics only include current devices.
-     *
-     * Note: We do NOT recreate gauges because prom-client does not allow duplicate metric names.
-     * Instead, we keep the same gauge instances and let Prometheus handle stale data via
-     * scrape intervals. Removed devices will show stale data until the next scrape.
      */
     private rebuildPrometheusGauges(): void {
         // Get current device keys for tracking
         const currentDeviceKeys = new Set<string>();
         for (const device of this.configuration.devices) {
-            currentDeviceKeys.add(this.getDeviceKey(device.ipAddress, device.source, device.deviceType));
+            const key = this.getDeviceKey(device.ipAddress, device.source, device.deviceType);
+            currentDeviceKeys.add(key);
         }
+
+        // Clean up gauges for removed devices before updating tracked keys
+        this.cleanupOrphanedGauges(currentDeviceKeys);
 
         // Update previous device keys for next comparison
         this.previousDeviceKeys = currentDeviceKeys;
