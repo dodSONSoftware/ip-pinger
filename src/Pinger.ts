@@ -343,16 +343,19 @@ export class Pinger implements dli.IPinger {
                     );
                 }
 
+                // Ensure roundTripMs is an integer (no decimal places)
+                const roundTripMsInt = Math.trunc(roundTripMs);
+
                 // Update per-device roundtrip gauge
                 if (this.prometheus_Pinger_Roundtrip_Gauge) {
                     this.prometheus_Pinger_Roundtrip_Gauge.set(
                         { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
-                        roundTripMs
+                        roundTripMsInt
                     );
                 }
 
                 // Update per-device roundtrip histogram
-                const roundTripSeconds = roundTripMs / 1000;
+                const roundTripSeconds = roundTripMsInt / 1000;
                 if (this.prometheus_Pinger_Roundtrip_Histogram) {
                     this.prometheus_Pinger_Roundtrip_Histogram.observe(
                         { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
@@ -387,9 +390,9 @@ export class Pinger implements dli.IPinger {
                 this.prometheus_Pinger_Devices_Down_Gauge.set(downCount);
             }
 
-            // Record cycle duration
+            // Record cycle duration (ensure integer milliseconds)
             const cycle_end_date = new Date();
-            const cycle_duration_ms = cycle_end_date.getTime() - cycle_start_date.getTime();
+            const cycle_duration_ms = Math.trunc(cycle_end_date.getTime() - cycle_start_date.getTime());
             const cycle_duration_seconds = cycle_duration_ms / 1000;
             if (this.prometheus_Pinger_Cycle_Duration_Histogram) {
                 this.prometheus_Pinger_Cycle_Duration_Histogram.observe(cycle_duration_seconds);
@@ -421,8 +424,8 @@ export class Pinger implements dli.IPinger {
                     resolve([false, 0]);
 
                 } else {
-                    // calculate ping round-trip
-                    const roundTripMs = received.getTime() - sent.getTime();
+                    // calculate ping round-trip (ensure integer milliseconds)
+                    const roundTripMs = Math.trunc(received.getTime() - sent.getTime());
 
                     // ping successful
                     logger.write_debug(`${originator}.ping_device`, `"${ipAddress}" Device Alive, ${roundTripMs}ms.  [target]=${target}`);
@@ -497,8 +500,8 @@ export class Pinger implements dli.IPinger {
                         roundTripMs: 0
                     });
                 } else {
-                    // calculate ping round-trip
-                    const roundTripMs = received.getTime() - sent.getTime();
+                    // calculate ping round-trip (ensure integer milliseconds)
+                    const roundTripMs = Math.trunc(received.getTime() - sent.getTime());
 
                     // ping successful
                     logger.write_debug(`${originator}.ping_idevice`, `"${ipAddress}" Device Alive, ${roundTripMs}ms.`, cycleStartDate);
