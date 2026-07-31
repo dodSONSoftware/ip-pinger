@@ -1,4 +1,4 @@
-# IP Pinger Service
+# IP Pinger Services
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -10,7 +10,7 @@ A scheduled service that pings configured devices on your network and publishes 
 
 ## Overview
 
-The IP Pinger service periodically sends ICMP echo requests to a list of configured devices and tracks:
+The IP Pinger Services periodically sends ICMP echo requests to a list of configured devices and tracks:
 
 - Device availability (up/down status)
 - Round-trip time (RTT) in milliseconds

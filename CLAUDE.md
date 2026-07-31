@@ -26,7 +26,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 ## Active Project
 
-### IP Pinger Service — Network Device Monitoring
+### IP Pinger Services — Network Device Monitoring
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 

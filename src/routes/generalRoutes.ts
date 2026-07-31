@@ -86,7 +86,7 @@ var start_date: Date;
 
 export const aboutInformation: AboutInformation = {
     about: {
-        name: "IP Pinger Service",
+        name: "IP Pinger Services",
         version: (packageData?.get("version") as string) ?? "unknown",
         author: "Randy Dodson (dodsonsoftware@gmail.com)",
         description: "An Express-based IP network pinger that periodically monitors device reachability, tracks round-trip times with histogram distribution, publishes metrics to Prometheus, and supports runtime configuration reloading without restart.",
@@ -100,7 +100,7 @@ export const aboutInformation: AboutInformation = {
     commands: {
         "name": "General",
         "help": {
-            "description": "IP Pinger Service",
+            "description": "IP Pinger Services",
             "commands": [
                 {
                     "route": "/about",
