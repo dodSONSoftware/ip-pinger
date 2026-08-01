@@ -89,7 +89,14 @@ export const aboutInformation: AboutInformation = {
         name: "IP Pinger Services",
         version: (packageData?.get("version") as string) ?? "unknown",
         author: "Randy Dodson (dodsonsoftware@gmail.com)",
-        description: "An Express-based IP network pinger that periodically monitors device reachability, tracks round-trip times with histogram distribution, publishes metrics to Prometheus, and supports runtime configuration reloading without restart.",
+        description: "**IP Pinger Services** is the network monitoring service for the **SensorNET** platform. " +
+            "Built with Node.js and Express, it continuously checks the availability and responsiveness of configured devices using ICMP echo requests.\n\n" +
+            "The **IP Pinger Services** loads device definitions from YAML configuration and performs scheduled ping cycles at configurable intervals. " +
+            "For each device, it records online or offline status, round- trip latency, last successful and failed checks, and categorized errors such as " +
+            "timeouts and unreachable hosts.\n\nThe **IP Pinger Services** exposes Prometheus metrics for device availability, latency distribution, monitoring " +
+            "- cycle duration, timestamps, and network errors.These metrics support Grafana dashboards, alerting, historical analysis, and early detection of " +
+            "connectivity or performance issues.\n\nRuntime configuration updates allow devices and monitoring settings to be changed without restarting the " +
+            "service.Health endpoints, structured logging, and automatic cleanup of metrics for removed devices support reliable production operation.",
         copyright: "Copyright (c) 2026 dodson Software ( dodson labs )",
         license: "MIT License"
     },
