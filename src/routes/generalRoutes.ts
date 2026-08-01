@@ -96,8 +96,8 @@ export const aboutInformation: AboutInformation = {
             "timeouts and unreachable hosts.\n\nThe **IP Pinger Services** exposes Prometheus metrics for device availability, latency distribution, monitoring " +
             "- cycle duration, timestamps, and network errors.These metrics support Grafana dashboards, alerting, historical analysis, and early detection of " +
             "connectivity or performance issues.\n\nRuntime configuration updates allow devices and monitoring settings to be changed without restarting the " +
-            "service.Health endpoints, structured logging, and automatic cleanup of metrics for removed devices support reliable production operation.",
-        copyright: "Copyright (c) 2026 dodson Software ( dodson labs )",
+            "service. Health endpoints, structured logging, and automatic cleanup of metrics for removed devices support reliable production operation.",
+        copyright: "Copyright © 2026 dodson Software ( dodson labs )",
         license: "MIT License"
     },
     system: {
