@@ -30,3 +30,7 @@ devices:
   - source: Kiosk-Kitchen
     ipAddress: 10.10.10.88
     deviceType: kiosk
+
+# Optional: Loki structured logging
+lokiUrl: "http://10.10.10.60:3100"
+lokiEnabled: true

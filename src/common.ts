@@ -36,11 +36,23 @@ const ConfigSchema = z.object({
     apiPort: z.number().int().positive(),
     intervalSecs: z.number().int().positive(),
     devices: z.array(DeviceSchema),
+    lokiUrl: z.string().url().optional(),
+    lokiEnabled: z.boolean().optional(),
 });
 
 /* ---------- Validation function ---------- */
 export type Device = z.infer<typeof DeviceSchema>;
 export type Config = z.infer<typeof ConfigSchema> & { logLevel: LogLevels };
+
+/**
+ * Extracts Loki configuration from the full config.
+ */
+export function getLokiConfig(config: Config): { url: string; enabled: boolean } {
+    return {
+        url: config.lokiUrl ?? "",
+        enabled: config.lokiEnabled ?? false,
+    };
+}
 
 /**
  * Validates YAML configuration string against the schema.

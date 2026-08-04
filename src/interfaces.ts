@@ -90,10 +90,12 @@ export interface IConfig {
     apiPort: number;
     intervalSecs: number;
     devices: IDevice[];
+    lokiUrl?: string;
+    lokiEnabled?: boolean;
 }
 
 export interface IDevice {
     source: string;
     ipAddress: string;
-    deviceType: string;
+    deviceType: "sensor" | "server" | "kiosk";
 }
