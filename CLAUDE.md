@@ -17,7 +17,8 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 │   ├── common.ts         # Configuration loading with Zod validation
 │   ├── interfaces.ts     # TypeScript interfaces
 │   ├── systemFunctions.ts # Utility functions
-│   └── swagger.ts        # Swagger UI setup
+│   ├── swagger.ts        # Swagger UI setup
+│   └── version.ts        # APP_VERSION / APP_NAME — version source of truth
 ├── tests/__tests__/      # Jest test files
 ├── dist/                 # Compiled output (generated)
 ├── config.yml            # Runtime configuration (YAML format)
@@ -29,6 +30,8 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 ### IP Pinger Services — Network Device Monitoring
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
+
+**Version:** 1.10.0 (release codename: Titanium Fox)
 
 **Commands:**
 ```bash
@@ -51,6 +54,7 @@ npm run lint    # Run ESLint
 - `src/Pinger.ts` — Core pinger class with net-ping session management
 - `src/common.ts` — Configuration loading with Zod schema validation
 - `src/config.yml` — Runtime configuration (YAML format)
+- `src/version.ts` — `APP_VERSION` / `APP_NAME` (release codename); version source of truth reported by `/about`, must stay in sync with `package.json`
 
 ## Architecture
 
@@ -132,6 +136,7 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 - **Promise-based pinging:** `pingHost()` wrapped in Promise for async/await compatibility
 - **Prometheus gauges:** Separate gauges for up status and round-trip time
 - **Zod validation:** Schema-based config validation with readable error messages
+- **Version management:** `src/version.ts` is the version source of truth (`APP_VERSION`, reported by `/about` and the boot log); the `/git-commit` Claude Code command (`.claude/commands/git-commit.md`) bumps it in lockstep with `package.json`, derives the release codename, syncs README.md/CLAUDE.md, and commits
 
 ## Development
 

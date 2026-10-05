@@ -1,12 +1,13 @@
 # IP Pinger Services
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-22.22.0-green.svg)](https://nodejs.org/)
-
-[![CI](https://img.shields.io/github/actions/workflow/status/dodson-labs/ip-pinger/ci.yml?branch=main&label=CI)](https://github.com/dodson-labs/ip-pinger/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A scheduled service that pings configured devices on your network and publishes results to Prometheus metrics for monitoring.
+
+**Release:** Titanium Fox — version 1.10.0.
 
 ## Overview
 
@@ -111,7 +112,7 @@ Configuration can be updated at runtime:
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| GET | `/about` | Service information and version |
+| GET | `/about` | Service information, version, and release codename |
 | GET | `/ping` | Trigger immediate ping of all devices |
 | GET | `/ping/:target` | Ping a specific IP address |
 | GET | `/read-config` | Read current configuration |

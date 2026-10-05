@@ -9,6 +9,7 @@ import { Logger } from "./Logger";
 import { Pinger } from "./Pinger";
 import { loadConfig } from "./common";
 import { read_file_json } from "./systemFunctions";
+import { APP_VERSION } from "./version";
 
 // ******** global variables
 
@@ -20,10 +21,9 @@ let pinger_dude: interfaces.IPinger;
 const packageJsonPath = "/app/package.json";
 const packageData = read_file_json(packageJsonPath);
 const appName = packageData?.get("name") ?? "Unknown App";
-const appVersion = packageData?.get("version") ?? "unknown";
 
 // ******** log the boot-up
-Logger.write_local_log(interfaces.LogLevel.Info, "boot", `Booting ${appName} v${appVersion}.`);
+Logger.write_local_log(interfaces.LogLevel.Info, "boot", `Booting ${appName} v${APP_VERSION}.`);
 
 // ******** local functions
 

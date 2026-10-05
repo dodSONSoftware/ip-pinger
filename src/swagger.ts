@@ -6,13 +6,14 @@
 import swaggerJsDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 import type { Express } from "express";
+import { APP_VERSION } from "./version";
 
 const swaggerOptions = {
     swaggerDefinition: {
         openapi: "3.0.0",
         info: {
             title: "IP Pinger",
-            version: "0.1.0",
+            version: APP_VERSION,
             description: "Will ping devices and report their roundtrip in milliseconds.",
         },
         servers: [

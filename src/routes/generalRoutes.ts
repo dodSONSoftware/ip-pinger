@@ -5,11 +5,11 @@
 
 import type express from "express";
 import { validateConfig, getConfigPath, loadConfig } from "../common";
-import { ensureError, write_file, read_file_json } from "../systemFunctions";
+import { ensureError, write_file } from "../systemFunctions";
 import type { ILogger, IPinger, IConfig, IDevice } from "../interfaces";
 import { LogLevel } from "../interfaces";
 import { Logger } from "../Logger";
-import { join } from "path";
+import { APP_VERSION, APP_NAME } from "../version";
 import { dump } from "js-yaml";
 import { register } from "prom-client";
 
@@ -26,10 +26,6 @@ export const InternalServerError = 500;
 
 export const Text = "text/plain";
 export const Json = "application/json";
-
-// **** Load package.json for dynamic version
-const packageJsonPath = join(__dirname, "..", "..", "package.json");
-const packageData = read_file_json(packageJsonPath);
 
 // **** STATIC Information
 
@@ -56,6 +52,7 @@ type SystemInfo = {
 type AboutInfo = {
     name: string;
     version: string;
+    release: string;
     author: string;
     description: string;
     copyright: string;
@@ -87,7 +84,8 @@ var start_date: Date;
 export const aboutInformation: AboutInformation = {
     about: {
         name: "IP Pinger Services",
-        version: (packageData?.get("version") as string) ?? "unknown",
+        version: APP_VERSION,
+        release: APP_NAME,
         author: "Randy Dodson (dodsonsoftware@gmail.com)",
         description: "**IP Pinger Services** is the network monitoring service for the **SensorNET** platform. " +
             "Built with Node.js and Express, it continuously checks the availability and responsiveness of configured devices using ICMP echo requests.\n\n" +
@@ -277,6 +275,8 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                     name:
      *                       type: string
      *                     version:
+     *                       type: string
+     *                     release:
      *                       type: string
      *                     author:
      *                       type: string
