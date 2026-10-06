@@ -24,7 +24,6 @@ describe("loadConfig", () => {
         const fs = require("fs");
         const tempConfig = `
 logLevel: debug
-alwaysLogErrors: true
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -37,7 +36,6 @@ devices:
         const [config, configText] = loadConfig();
 
         expect(config.logLevel).toBe("debug");
-        expect(config.alwaysLogErrors).toBe(true);
         expect(config.apiPort).toBe(3300);
         expect(config.intervalSecs).toBe(30);
         expect(config.devices).toHaveLength(1);
@@ -52,7 +50,6 @@ devices:
         const fs = require("fs");
         const tempConfig = `
 logLevel: info
-alwaysLogErrors: false
 apiPort: 3300
 intervalSecs: 60
 devices:
@@ -81,7 +78,6 @@ describe("validateConfig", () => {
     it("should return ok=true for valid YAML", () => {
         const yaml = `
 logLevel: debug
-alwaysLogErrors: true
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -118,7 +114,6 @@ logLevel: debug
     it("should return validation errors for invalid data", () => {
         const invalidData = `
 logLevel: invalid-level
-alwaysLogErrors: true
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -139,7 +134,6 @@ devices:
     it("should reject invalid device types", () => {
         const invalidDeviceType = `
 logLevel: debug
-alwaysLogErrors: true
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -149,14 +143,12 @@ devices:
 `;
 
         const result = validateConfig(invalidDeviceType);
-
         expect(result.ok).toBe(false);
     });
 
     it("should accept all valid device types", () => {
         const validTypes = `
 logLevel: debug
-alwaysLogErrors: true
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -173,6 +165,62 @@ devices:
 
         const result = validateConfig(validTypes);
         expect(result.ok).toBe(true);
+    });
+
+    it("should ignore unknown configuration keys such as the removed alwaysLogErrors", () => {
+        const yaml = `
+logLevel: debug
+alwaysLogErrors: true
+apiPort: 3300
+intervalSecs: 30
+devices:
+  - source: Test
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
+`;
+
+        const result = validateConfig(yaml);
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect((result.data as Record<string, unknown>).alwaysLogErrors).toBeUndefined();
+        }
+    });
+});
+
+describe("IPv4 validation", () => {
+    const yamlForIp = (ip: string) => `
+logLevel: debug
+apiPort: 3300
+intervalSecs: 30
+devices:
+  - source: Test
+    ipAddress: "${ip}"
+    deviceType: sensor
+`;
+
+    it.each([
+        "0.0.0.0",
+        "10.10.10.70",
+        "192.168.1.255",
+        "255.255.255.255",
+    ])("should accept valid IPv4 address %s", (ip) => {
+        const result = validateConfig(yamlForIp(ip));
+        expect(result.ok).toBe(true);
+    });
+
+    it.each([
+        "256.0.0.1",
+        "999.999.999.999",
+        "192.168.1",
+        "192.168.1.1.1",
+        "abc.def.ghi.jkl",
+    ])("should reject invalid IPv4 address %s", (ip) => {
+        const result = validateConfig(yamlForIp(ip));
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.errors.join(" ")).toMatch(/IP address/);
+        }
     });
 });
 

@@ -4,7 +4,8 @@
  */
 
 import type express from "express";
-import { validateConfig, getConfigPath, loadConfig } from "../common";
+import { validateConfig, getConfigPath, loadConfig, getRestartRequiredSettings, requiresRestart } from "../common";
+import type { RestartRequiredSettings } from "../common";
 import { ensureError, write_file } from "../systemFunctions";
 import type { ILogger, IPinger, IConfig, IDevice } from "../interfaces";
 import { LogLevel } from "../interfaces";
@@ -80,6 +81,9 @@ type EndpointsInfo = {
 
 // **** PRIVATE Variables for runtime state
 var start_date: Date;
+// Startup-owned settings that remain active until the process restarts.
+// Captured once at boot so reload comparisons are never skewed by later config writes.
+var startup_settings: RestartRequiredSettings;
 
 export const aboutInformation: AboutInformation = {
     about: {
@@ -187,17 +191,17 @@ export const endpointsInfo: EndpointsInfo = {
             name: "Write Config",
             route: "/write-config",
             verb: "POST",
-            requestBody: "JSON object with keys: logLevel (string), alwaysLogErrors (boolean), apiPort (positive integer), intervalSecs (positive integer), devices (array of objects with source, ipAddress, deviceType)",
-            responseBody: "{ success: boolean, message: string }",
-            description: "Updates the configuration and reloads it."
+            requestBody: "JSON object with keys: logLevel (string), apiPort (positive integer), intervalSecs (positive integer), devices (array of objects with source, ipAddress, deviceType), lokiUrl (string, optional), lokiEnabled (boolean, optional)",
+            responseBody: "{ success: boolean, restartRequired: boolean, message: string }",
+            description: "Updates the configuration and reloads it. Hot-reloadable settings (intervalSecs, devices) apply immediately; apiPort, logLevel, lokiUrl, and lokiEnabled require a process restart."
         },
         {
             name: "Reload Config",
             route: "/reload-config",
             verb: "GET",
             requestBody: "None",
-            responseBody: "{ success: true, message: \"Configuration reloaded successfully\" }",
-            description: "Reloads the configuration from disk without changing the payload."
+            responseBody: "{ success: boolean, restartRequired: boolean, message: string }",
+            description: "Reloads the configuration from disk without changing the payload. Reports whether a restart is required for startup-owned settings."
         },
         {
             name: "Metrics",
@@ -253,6 +257,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     ip_pinger = pinger;
     log_writer = logger;
     start_date = startDate;
+    startup_settings = getRestartRequiredSettings(config);
     aboutInformation.system.bootdate = startDate.toISOString();
 
     /**
@@ -366,7 +371,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      * /read-config:
      *   get:
      *     summary: Read the configuration file.
-     *     description: Returns the configuration file.
+     *     description: Reads the configuration file without applying it to the running service. Use /reload-config to apply it.
      *     responses:
      *       200:
      *         description: The configuration file
@@ -382,23 +387,16 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      */
     app.route("/read-config").get((req: express.Request, res: express.Response) => {
         try {
-            // Use loadConfig to properly parse and convert the config
+            // Read and validate the configuration file without touching running
+            // application state. Applying disk configuration to the running
+            // service is the job of /reload-config.
             const [newConfig, config_text] = loadConfig(log_writer);
 
-            // Update in-memory cache
-            configuration = config_text;
-            configurationObj = newConfig;
-
-            // Update the running pinger with the new configuration
-            if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
-                ip_pinger.updateConfig(newConfig, config_text);
-            }
-
-            // Log the newly loaded configuration
+            // Log the read configuration
             Logger.write_local_log(
                 LogLevel.Info,
                 originator + ".read-config",
-                `Configuration loaded:\n${config_text}`
+                `Configuration read:\n${config_text}`
             );
 
             res.type(Json).status(OK).json(newConfig);
@@ -422,8 +420,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *             example:
      *               {
      *                  "logLevel": "info",
-     *                  "alwaysLogErrors": true,
-     *                  "prometheusPort": 3300,
+     *                  "apiPort": 3300,
      *                  "intervalSecs": 30,
      *                  "devices": [
      *                      {
@@ -441,12 +438,17 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *             schema:
      *               type: object
      *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 restartRequired:
+     *                   type: boolean
      *                 message:
      *                   type: string
-     *                   example: Data received
      *             example:
      *               {
-     *                   "message": "Valid configuration data received"
+     *                   "success": true,
+     *                   "restartRequired": false,
+     *                   "message": "Configuration updated successfully."
      *               }
      *       400:
      *         description: Bad Request
@@ -476,10 +478,17 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 // Use loadConfig to properly parse and convert the config
                 const [newConfig, config_text] = loadConfig(log_writer);
 
-                // Update internal route state
+                // Update internal route state (persisted configuration)
                 configuration = config_text;
                 configurationObj = newConfig;
 
+                // Compare startup-owned settings against the values still active.
+                // The comparison baseline is captured at boot and never updated here,
+                // so later reloads keep reporting restart-required accurately.
+                const restartRequired = requiresRestart(newConfig, startup_settings);
+
+                // Apply only the hot-reloadable settings (intervalSecs, devices)
+                // to the running pinger.
                 if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
                     ip_pinger.updateConfig(newConfig, config_text);
                 }
@@ -493,7 +502,10 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
 
                 res.status(OK).json({
                     success: true,
-                    message: "Configuration updated successfully"
+                    restartRequired: restartRequired,
+                    message: restartRequired
+                        ? "Configuration saved. Restart required for some changes to take effect."
+                        : "Configuration updated successfully."
                 });
 
             } else {
@@ -516,10 +528,21 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      * /reload-config:
      *   get:
      *     summary: Reloads the configuration from disk.
-     *     description: Reloads the configuration from disk without changing the payload. Updates the running pinger with the new configuration.
+     *     description: Reloads the configuration from disk without changing the payload. Applies the hot-reloadable settings to the running pinger and reports whether a restart is required for startup-owned settings.
      *     responses:
      *       200:
      *         description: Configuration reloaded successfully
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 restartRequired:
+     *                   type: boolean
+     *                 message:
+     *                   type: string
      *       400:
      *         description: Invalid configuration on disk or could not find config file
      */
@@ -528,11 +551,15 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             // Use loadConfig to properly parse and convert the config
             const [newConfig, rawText] = loadConfig(log_writer);
 
-            // Update internal route state
+            // Update internal route state (persisted configuration)
             configuration = rawText;
             configurationObj = newConfig;
 
-            // Update the running pinger with the new configuration
+            // Compare startup-owned settings against the values still active
+            const restartRequired = requiresRestart(newConfig, startup_settings);
+
+            // Apply only the hot-reloadable settings (intervalSecs, devices)
+            // to the running pinger
             if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
                 ip_pinger.updateConfig(newConfig, rawText);
             }
@@ -547,7 +574,10 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             log_writer.write_info("generalRoutes.reload-config", `Configuration reloaded successfully.`);
             res.status(OK).json({
                 success: true,
-                message: "Configuration reloaded successfully"
+                restartRequired: restartRequired,
+                message: restartRequired
+                    ? "Configuration reloaded. Restart required for some changes to take effect."
+                    : "Configuration reloaded successfully."
             });
 
         } catch (error) {

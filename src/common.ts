@@ -22,17 +22,15 @@ export function getConfigPath(): string {
 }
 
 /* ---------- Schema ---------- */
-const ipRegex = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 
 const DeviceSchema = z.object({
     source: z.string(),
-    ipAddress: z.string().regex(ipRegex, "Invalid IP address"),
+    ipAddress: z.ipv4("Invalid IP address"),
     deviceType: z.enum(["sensor", "server", "kiosk"]),
 });
 
 const ConfigSchema = z.object({
     logLevel: z.enum(["debug", "info", "warn", "error"] as const),
-    alwaysLogErrors: z.boolean(),
     apiPort: z.number().int().positive(),
     intervalSecs: z.number().int().positive(),
     devices: z.array(DeviceSchema),
@@ -43,6 +41,37 @@ const ConfigSchema = z.object({
 /* ---------- Validation function ---------- */
 export type Device = z.infer<typeof DeviceSchema>;
 export type Config = z.infer<typeof ConfigSchema> & { logLevel: LogLevels };
+
+/* ---------- Restart-required settings ---------- */
+
+// Settings consumed only during startup (Express listen port, Logger level,
+// Loki transport). They remain active until the process restarts, so a
+// config change touching any of them must be reported as restart-required.
+export const RESTART_REQUIRED_FIELDS = ["apiPort", "logLevel", "lokiUrl", "lokiEnabled"] as const;
+export type RestartRequiredField = (typeof RESTART_REQUIRED_FIELDS)[number];
+export type RestartRequiredSettings = Pick<IConfig, RestartRequiredField>;
+
+/**
+ * Extracts the startup-owned (restart-required) settings from a configuration.
+ */
+export function getRestartRequiredSettings(config: IConfig): RestartRequiredSettings {
+    return {
+        apiPort: config.apiPort,
+        logLevel: config.logLevel,
+        lokiUrl: config.lokiUrl,
+        lokiEnabled: config.lokiEnabled,
+    };
+}
+
+/**
+ * Compares a candidate configuration against the startup values that are
+ * still active and reports whether a process restart is required before
+ * all of the candidate's values are in effect.
+ */
+export function requiresRestart(candidate: IConfig, active: RestartRequiredSettings): boolean {
+    const next = getRestartRequiredSettings(candidate);
+    return RESTART_REQUIRED_FIELDS.some((field) => next[field] !== active[field]);
+}
 
 /**
  * Extracts Loki configuration from the full config.

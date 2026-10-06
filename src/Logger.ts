@@ -35,7 +35,6 @@ export class Logger implements ILogger {
                     : LogLevel.Error;
 
         this.globalLogLevelName = config.logLevel;
-        this.globalAlwaysLogErrors = Boolean(config.alwaysLogErrors);
 
         // Build Winston logger with configured transports
         const transports: Transport[] = [
@@ -80,7 +79,6 @@ export class Logger implements ILogger {
 
     private readonly globalLogLevelValue: LogLevel = LogLevel.None;
     private readonly globalLogLevelName: string = "";
-    private readonly globalAlwaysLogErrors: boolean = false;
     private readonly winston: winston.Logger;
 
     // ********
@@ -183,33 +181,4 @@ export class Logger implements ILogger {
         }
     }
 
-    // ********
-    // ******** PRIVATE logging functions
-
-    private _canLog(logLevel: LogLevel): boolean {
-        // check for an auto-error
-        if (this.globalAlwaysLogErrors && logLevel === LogLevel.Error) {
-            return true;
-        }
-
-        // check for global log level of None
-        if (this.global_log_level() === LogLevel.None) {
-            return false;
-        }
-
-        // check given log level
-        if (logLevel.valueOf() <= this.global_log_level().valueOf()) {
-            return true;
-        }
-
-        // default
-        return false;
-    }
-
-    private _write_local_log(log_level: LogLevel, originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
-        // check
-        if (this._canLog(log_level)) {
-            Logger.write_local_log(log_level, originator, message, elapsed_time_start_date);
-        }
-    }
 }

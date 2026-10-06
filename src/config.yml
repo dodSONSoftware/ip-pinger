@@ -1,5 +1,4 @@
 logLevel: debug
-alwaysLogErrors: true
 apiPort: 3300
 intervalSecs: 30
 devices:

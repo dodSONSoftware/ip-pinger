@@ -84,6 +84,14 @@ export class Pinger implements dli.IPinger {
         // Device-specific gauges (with labels, recreated on config reload)
         this.createAllDeviceGauges();
 
+        // Baseline the tracked device keys from the initial configuration so the
+        // first configuration reload can detect devices that were removed.
+        this.previousDeviceKeys = new Set(
+            this.configuration.devices.map((device) =>
+                this.getDeviceKey(device.ipAddress, device.source, device.deviceType)
+            )
+        );
+
         // ******** SETUP EXPRESS
 
         // init
@@ -142,8 +150,8 @@ export class Pinger implements dli.IPinger {
         logger.write_info(this.originator + ".ctor", `Ping Interval Cycle: ${this.configuration.intervalSecs} seconds.`);
     } // end-constructor
 
-    // Store previous device identifiers for tracking changes
-    private previousDeviceKeys: Set<string> = new Set();
+    // Store previous device identifiers for tracking changes (baselined in the ctor)
+    private previousDeviceKeys: Set<string>;
 
     // ****************************************************************
     // ******** Public methods for runtime configuration updates

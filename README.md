@@ -1,13 +1,15 @@
 # IP Pinger Services
 
+Series 4 - IP Pinger Services
+
+**Release:** Titanium Fox — version 1.10.1.
+
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-22.22.0-green.svg)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A scheduled service that pings configured devices on your network and publishes results to Prometheus metrics for monitoring.
-
-**Release:** Titanium Fox — version 1.10.0.
 
 ## Overview
 
@@ -71,7 +73,6 @@ Create or modify `src/config.yml`:
 
 ```yaml
 logLevel: debug
-alwaysLogErrors: true
 apiPort: 3300
 intervalSecs: 30
 devices:
@@ -85,7 +86,6 @@ devices:
 | Option | Description | Default | Valid Values |
 |--------|-------------|---------|--------------|
 | `logLevel` | Logging verbosity | `info` | `debug`, `info`, `warn`, `error` |
-| `alwaysLogErrors` | Log all errors regardless of level | `false` | `true`, `false` |
 | `apiPort` | HTTP API port | `3300` | Positive integer |
 | `intervalSecs` | Ping cycle interval | `60` | Positive integer |
 | `devices` | Array of devices to ping | required | Array of device objects |
@@ -104,9 +104,17 @@ Configuration can be updated at runtime:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/read-config` | GET | Returns current configuration |
+| `/read-config` | GET | Returns the configuration file (read-only; does not apply it to the running service) |
 | `/write-config` | POST | Updates configuration from request body |
 | `/reload-config` | GET | Reloads configuration from disk |
+
+Settings split into two groups:
+
+- **Hot-reloadable** (applied immediately): `intervalSecs`, `devices`
+- **Restart-required** (active only after a process restart): `apiPort`, `logLevel`, `lokiUrl`, `lokiEnabled`
+
+`/write-config` and `/reload-config` report this via a machine-readable
+`restartRequired` field in the response.
 
 ## API Endpoints
 

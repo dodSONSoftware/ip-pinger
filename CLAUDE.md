@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.10.0 (release codename: Titanium Fox)
+**Version:** 1.10.1 (release codename: Titanium Fox)
 
 **Commands:**
 ```bash
@@ -107,7 +107,6 @@ while (true):
 ### Configuration (`config.yml`)
 ```yaml
 logLevel: debug
-alwaysLogErrors: true
 apiPort: 3300
 intervalSecs: 60
 devices:
@@ -118,11 +117,18 @@ devices:
 
 ### Hot-Reload Configuration
 
-Configuration can be updated at runtime without restarting the service:
+Configuration can be updated at runtime:
 
-- **GET `/read-config`** — Returns current configuration
+- **GET `/read-config`** — Returns the configuration file (read-only; does not apply it to the running service)
 - **POST `/write-config`** — Updates configuration from request body and reloads it
 - **GET `/reload-config`** — Reloads configuration from disk without changing payload
+
+Settings split into two groups:
+
+- **Hot-reloadable** (applied immediately): `intervalSecs`, `devices`
+- **Restart-required** (active only after a process restart): `apiPort`, `logLevel`, `lokiUrl`, `lokiEnabled`
+
+`/write-config` and `/reload-config` report this via a machine-readable `restartRequired` response field.
 
 Note: Configuration is stored in YAML format (`src/config.yml`) instead of JSON.
 

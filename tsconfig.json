@@ -8,7 +8,9 @@
     /* Emit */
     "noEmitOnError": true, /* Disable emitting files if any type checking errors are reported. */
     "outDir": "./dist", /* Specify an output folder for all emitted files. */
-    "removeComments": true, /* Disable emitting comments. */
+    /* Keep comments so the compiled route files retain their @swagger JSDoc
+       annotations and production Swagger can discover the API routes. */
+    "removeComments": false,
     "resolveJsonModule": true, /* Enable importing .json files. */
     /* Interop Constraints */
     "esModuleInterop": true, /* Emit additional JavaScript to ease support for importing CommonJS modules. This enables 'allowSyntheticDefaultImports' for type compatibility. */
