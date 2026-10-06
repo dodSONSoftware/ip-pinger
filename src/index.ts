@@ -27,7 +27,7 @@ Logger.write_local_log(interfaces.LogLevel.Info, "boot", `Booting ${appName} v${
 
 // ******** local functions
 
-function initialize() {
+async function initialize() {
     // init
     const start_date = new Date();
 
@@ -53,6 +53,11 @@ function initialize() {
     // init pinger
     pinger_dude = new Pinger(configuration, config_str, logger, start_date);
 
+    // Start the HTTP API and await it: a failed bind (e.g. EADDRINUSE)
+    // rejects here, propagates out of main(), and the process terminates
+    // before the ping loop ever starts.
+    await pinger_dude.start();
+
     // log-it
     logger.write_info(originator + ".initialize", `IP Pinger Application initialized.`, start_date);
 }
@@ -75,7 +80,7 @@ async function shutdown(signal: string) {
 
 async function main() {
     // init
-    initialize();
+    await initialize();
 
     // loop-it
     while (true) {

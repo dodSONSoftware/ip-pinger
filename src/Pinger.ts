@@ -4,7 +4,7 @@
  */
 
 import type * as dli from "./interfaces";
-import { sleep, sleep_from_start } from "./systemFunctions";
+import { ensureError, sleep, sleep_from_start } from "./systemFunctions";
 import { register, Gauge, Histogram, Counter } from "prom-client";
 import type { Server } from "http";
 import type { NextFunction } from "express";
@@ -38,7 +38,8 @@ export class Pinger implements dli.IPinger {
     // ----
     private readonly ip_pinger: Session;
     private readonly express: express.Application;
-    private api_server: Server;
+    // Set by start() once the listener is up; undefined until then
+    private api_server?: Server;
     // ----
     private prometheus_Pinger_Up_Gauge!: Gauge;
     private prometheus_Pinger_Roundtrip_Gauge!: Gauge;
@@ -114,16 +115,6 @@ export class Pinger implements dli.IPinger {
         // ******** SETUP SWAGGER
 
         setupSwagger(this.express as express.Express);
-
-        // Start the express server on API port for all endpoints including metrics
-        this.api_server = this.express.listen(this.configuration.apiPort, () => {
-            this.logger.write_info(this.originator + ".ctor", `API Server is running at http://localhost:${this.configuration.apiPort}`);
-            this.logger.write_info(this.originator + ".ctor", `Prometheus metrics can be found at http://localhost:${this.configuration.apiPort}/metrics`);
-        });
-
-        this.api_server.on('error', (err: Error) => {
-            this.logger.write_error(this.originator + ".ctor", `API server error: ${err.message}`);
-        });
 
         // ******** CREATE THE PINGER
 
@@ -291,6 +282,53 @@ export class Pinger implements dli.IPinger {
     }
 
     /**
+     * Starts the HTTP API server and awaits the result.
+     * Resolves once the server is listening; rejects if the port cannot be
+     * bound (e.g. EADDRINUSE). The caller must treat a rejection as a
+     * startup failure: the ping loop must not start, and the failure must
+     * propagate to the top-level application boundary.
+     */
+    public async start(): Promise<void> {
+        const port = this.configuration.apiPort;
+        const server = this.express.listen(port);
+
+        try {
+            await new Promise<void>((resolve, reject) => {
+                const onError = (error: Error): void => {
+                    server.off("listening", onListening);
+                    reject(error);
+                };
+                const onListening = (): void => {
+                    server.off("error", onError);
+                    resolve();
+                };
+                server.once("error", onError);
+                server.once("listening", onListening);
+            });
+        } catch (error) {
+            const err = ensureError(error);
+            const code = (err as NodeJS.ErrnoException).code;
+            this.logger.write_error(
+                this.originator + ".start",
+                `API server failed to bind on port ${port}: ${err.message}${code ? ` (code: ${code})` : ""}`
+            );
+            // The listener never started; drop the server so no handle lingers
+            server.close();
+            throw err;
+        }
+
+        this.api_server = server;
+
+        // Log post-start server errors (kept from the previous inline handler)
+        this.api_server.on("error", (err: Error) => {
+            this.logger.write_error(this.originator + ".start", `API server error: ${err.message}`);
+        });
+
+        this.logger.write_info(this.originator + ".start", `API Server is running at http://localhost:${port}`);
+        this.logger.write_info(this.originator + ".start", `Prometheus metrics can be found at http://localhost:${port}/metrics`);
+    }
+
+    /**
      * Closes the HTTP API server and the net-ping session, giving the
      * application an explicit lifecycle boundary for tests and graceful
      * termination.
@@ -300,11 +338,12 @@ export class Pinger implements dli.IPinger {
         this.ip_pinger.close();
 
         // close the HTTP API server (if it is listening)
-        if (this.api_server?.listening) {
+        const api_server = this.api_server;
+        if (api_server?.listening) {
             await new Promise<void>((resolve) => {
-                this.api_server.close(() => resolve());
+                api_server.close(() => resolve());
                 // close idle keep-alive connections so shutdown is prompt
-                this.api_server.closeAllConnections();
+                api_server.closeAllConnections();
             });
         }
 

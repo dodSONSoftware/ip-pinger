@@ -74,6 +74,7 @@ export class ConsoleLogger implements ILogger {
 // **** Pinger
 
 export interface IPinger {
+    start(): Promise<void>;
     run(): Promise<void>;
     ping_device(ip_address: string): Promise<[boolean, number]>;
     updateConfig(config: IConfig, config_str: string): void;

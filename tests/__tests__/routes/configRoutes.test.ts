@@ -50,6 +50,7 @@ function yamlFor(config: IConfig): string {
 // route handlers apply at runtime.
 const updateConfig = jest.fn();
 const fakePinger: IPinger = {
+    start: jest.fn(async (): Promise<void> => { }),
     run: jest.fn(),
     ping_device: jest.fn(async (): Promise<[boolean, number]> => [true, 10]),
     updateConfig: updateConfig,

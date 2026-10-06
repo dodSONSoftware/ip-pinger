@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.0 (release codename: Cobalt Fox)
+**Version:** 1.11.1 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -63,7 +63,7 @@ npm run lint    # Run ESLint
 2. Loads `config.yml` into global `configuration` map
 3. Creates `Logger` instance with configuration
 4. Creates `Pinger` instance with configuration and logger
-5. Express servers start on Prometheus/API port
+5. `pinger_dude.start()` starts the Express server and is awaited — if the port cannot be bound (e.g. `EADDRINUSE`), initialization rejects, the failure reaches the top-level boundary, and the process terminates before the ping loop starts
 6. Enters infinite loop calling `pinger_dude.run()`
 
 ### Pinger Loop (`Pinger.ts`)

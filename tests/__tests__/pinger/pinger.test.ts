@@ -23,14 +23,15 @@ function makeConfig(devices: IDevice[], overrides: Partial<IConfig> = {}): IConf
     };
 }
 
-// The Pinger constructor starts an Express server on the configured API port.
+// The Pinger starts an Express server on the configured API port via start().
 // Track every constructed Pinger so afterAll can close its server (and
 // net-ping session) via close(), letting jest exit cleanly.
 const pingers: Pinger[] = [];
 
-function createPinger(config: IConfig): Pinger {
+async function createPinger(config: IConfig): Promise<Pinger> {
     const pinger = new Pinger(config, "initial config", new NoOpLogger(), new Date());
     pingers.push(pinger);
+    await pinger.start();
     return pinger;
 }
 
@@ -47,7 +48,7 @@ afterEach(() => {
 
 describe("Pinger first configuration reload (stale Prometheus series)", () => {
     it("removes metric series for devices removed on the first reload after construction", async () => {
-        const pinger = createPinger(makeConfig([deviceA, deviceB]));
+        const pinger = await createPinger(makeConfig([deviceA, deviceB]));
         const getUpGauge = () =>
             (pinger as unknown as { prometheus_Pinger_Up_Gauge: Gauge }).prometheus_Pinger_Up_Gauge;
 
@@ -80,7 +81,7 @@ describe("Pinger first configuration reload (stale Prometheus series)", () => {
     });
 
     it("keeps every series when no devices are removed on the first reload", async () => {
-        const pinger = createPinger(makeConfig([deviceA, deviceB]));
+        const pinger = await createPinger(makeConfig([deviceA, deviceB]));
         const getUpGauge = () =>
             (pinger as unknown as { prometheus_Pinger_Up_Gauge: Gauge }).prometheus_Pinger_Up_Gauge;
 
@@ -105,7 +106,7 @@ describe("Pinger first configuration reload (stale Prometheus series)", () => {
 describe("Pinger.close() (lifecycle)", () => {
     it("closes the HTTP API server and the net-ping session", async () => {
         const netPing = jest.requireMock("net-ping") as { createSession: { mock: { results: Array<{ value: { close: jest.Mock } }> } } };
-        const pinger = createPinger(makeConfig([deviceA]));
+        const pinger = await createPinger(makeConfig([deviceA]));
         const session = netPing.createSession.mock.results.at(-1)!.value;
         const api_server = (pinger as unknown as { api_server: http.Server }).api_server;
         expect(api_server.listening).toBe(true);
@@ -117,9 +118,39 @@ describe("Pinger.close() (lifecycle)", () => {
     });
 });
 
+describe("Pinger.start() (API listener startup)", () => {
+    it("resolves once the API server is listening", async () => {
+        const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date());
+        pingers.push(pinger);
+
+        await pinger.start();
+
+        const api_server = (pinger as unknown as { api_server: http.Server }).api_server;
+        expect(api_server.listening).toBe(true);
+    });
+
+    it("rejects when the API port is already in use (EADDRINUSE) and the pinger never reaches a listening state", async () => {
+        // Occupy an ephemeral port with a throwaway server
+        const blocker = http.createServer();
+        await new Promise<void>((resolve) => blocker.once("listening", () => resolve()).listen(0));
+        const blockerPort = (blocker.address() as { port: number }).port;
+
+        const pinger = new Pinger(makeConfig([deviceA], { apiPort: blockerPort }), "initial config", new NoOpLogger(), new Date());
+        pingers.push(pinger);
+
+        await expect(pinger.start()).rejects.toThrow("EADDRINUSE");
+
+        // The ping loop must not start: there is no listening API server
+        const api_server = (pinger as unknown as { api_server?: http.Server }).api_server;
+        expect(api_server?.listening ?? false).toBe(false);
+
+        await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    });
+});
+
 describe("Pinger.updateConfig (hot-reloadable settings)", () => {
-    it("applies new intervalSecs and devices to the running pinger immediately", () => {
-        const pinger = createPinger(makeConfig([deviceA], { intervalSecs: 30 }));
+    it("applies new intervalSecs and devices to the running pinger immediately", async () => {
+        const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 30 }));
 
         pinger.updateConfig(makeConfig([deviceA, deviceB], { intervalSecs: 45 }), "updated config");
 
