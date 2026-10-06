@@ -6,7 +6,7 @@
 import type * as dli from "./interfaces";
 import { API_PORT } from "./common";
 import { ensureError, sleep, sleep_from_start } from "./systemFunctions";
-import { register, Gauge, Histogram, Counter } from "prom-client";
+import { Gauge, Histogram, Counter } from "prom-client";
 import type { Server } from "http";
 import type { NextFunction } from "express";
 import express from "express";
@@ -28,6 +28,14 @@ interface PingResultInternal {
     roundTripMs: number;
 }
 
+/**
+ * The finite set of errorType label values the error counter can carry.
+ * Used when removing a device's series so every label combination is
+ * covered without clearing the whole metric.
+ */
+export const PING_ERROR_TYPES = ["timeout", "host_unreachable", "network_unreachable", "ttl_exceeded", "other"] as const;
+export type PingErrorType = (typeof PING_ERROR_TYPES)[number];
+
 export class Pinger implements dli.IPinger {
     // ********
     // ******** private properties
@@ -43,6 +51,14 @@ export class Pinger implements dli.IPinger {
     private readonly api_port: number;
     // Set by start() once the listener is up; undefined until then
     private api_server?: Server;
+    // ----
+    // Device-list changes requested while a ping cycle is in flight are
+    // held here and applied at the cycle boundary so no in-flight ping can
+    // publish metrics for a device that is being removed.
+    private pending_update?: { config: dli.IConfig; config_str: string };
+    private ping_cycle_in_flight = false;
+    // Set by close() so the run() loop can exit at the next check
+    private closed = false;
     // ----
     private prometheus_Pinger_Up_Gauge!: Gauge;
     private prometheus_Pinger_Roundtrip_Gauge!: Gauge;
@@ -84,14 +100,16 @@ export class Pinger implements dli.IPinger {
             help: "Number of devices currently unreachable.",
         });
 
-        // Device-specific gauges (with labels, recreated on config reload)
+        // Device-specific metrics (with labels). These are process-lived:
+        // they are created once here and never rebuilt, so reloads can only
+        // remove a device's series, never reset the history of others.
         this.createAllDeviceGauges();
 
-        // Baseline the tracked device keys from the initial configuration so the
+        // Baseline the tracked devices from the initial configuration so the
         // first configuration reload can detect devices that were removed.
-        this.previousDeviceKeys = new Set(
+        this.previousDevices = new Map(
             this.configuration.devices.map((device) =>
-                this.getDeviceKey(device.ipAddress, device.source, device.deviceType)
+                [this.getDeviceKey(device.ipAddress, device.source, device.deviceType), device] as const
             )
         );
 
@@ -143,8 +161,10 @@ export class Pinger implements dli.IPinger {
         logger.write_info(this.originator + ".ctor", `Ping Interval Cycle: ${this.configuration.intervalSecs} seconds.`);
     } // end-constructor
 
-    // Store previous device identifiers for tracking changes (baselined in the ctor)
-    private previousDeviceKeys: Set<string>;
+    // Previous device list, keyed by device key, for tracking removals
+    // (baselined in the ctor; kept as IDevice entries because device names
+    // may themselves contain the ':' key separator)
+    private previousDevices: Map<string, dli.IDevice>;
 
     // ****************************************************************
     // ******** Public methods for runtime configuration updates
@@ -157,53 +177,66 @@ export class Pinger implements dli.IPinger {
     }
 
     /**
-     * Removes metrics for devices that are no longer in the configuration.
-     * Call this after configuration changes to clean up orphaned metrics.
-     *
-     * Uses register.clear() followed by re-registering system-level gauges
-     * and recreating device-specific gauges.
-     * This is safe to do during config reload (not every ping cycle).
+     * Removes the Prometheus series that belong to a single device from
+     * every per-device metric. Metric objects themselves are process-lived,
+     * so the history of all other devices (and of the unlabeled system
+     * metrics) is left untouched.
      */
-    private cleanupOrphanedGauges(currentDeviceKeys: Set<string>): void {
-        // Find keys that were removed
-        const removedKeys = [...this.previousDeviceKeys].filter(key => !currentDeviceKeys.has(key));
+    private removeDeviceMetrics(device: dli.IDevice): void {
+        const labels = {
+            ipAddress: device.ipAddress,
+            deviceName: device.source,
+            deviceType: device.deviceType,
+        };
 
-        this.logger.write_debug(this.originator + ".cleanupOrphanedGauges", `Previous keys: ${[...this.previousDeviceKeys].join(", ")}`);
-        this.logger.write_debug(this.originator + ".cleanupOrphanedGauges", `Current keys: ${[...currentDeviceKeys].join(", ")}`);
-        this.logger.write_debug(this.originator + ".cleanupOrphanedGauges", `Removed keys: ${removedKeys.join(", ")}`);
+        this.prometheus_Pinger_Up_Gauge.remove(labels);
+        this.prometheus_Pinger_Roundtrip_Gauge.remove(labels);
+        this.prometheus_Pinger_Roundtrip_Histogram.remove(labels);
+        this.prometheus_Pinger_Last_Success_Timestamp_Gauge.remove(labels);
+        this.prometheus_Pinger_Last_Failure_Timestamp_Gauge.remove(labels);
 
-        if (removedKeys.length === 0) {
-            this.logger.write_debug(this.originator + ".cleanupOrphanedGauges", `No devices to remove.`);
-            return;
+        // The error counter carries an extra errorType label: remove every
+        // known label combination for the device.
+        for (const errorType of PING_ERROR_TYPES) {
+            this.prometheus_Pinger_Error_Total.remove({ ...labels, errorType });
+        }
+    }
+
+    /**
+     * Removes metrics for devices that are no longer in the configuration.
+     * Only the removed devices' label series are deleted; everything else
+     * (other devices' gauges, counters, histograms and the system-level
+     * metrics) keeps its process-lifetime state.
+     */
+    private removeRemovedDeviceMetrics(): void {
+        const currentDeviceKeys = new Set<string>();
+        for (const device of this.configuration.devices) {
+            currentDeviceKeys.add(this.getDeviceKey(device.ipAddress, device.source, device.deviceType));
         }
 
-        this.logger.write_info(this.originator + ".cleanupOrphanedGauges", `Removing ${removedKeys.length} orphaned device(s).`);
+        const removedDevices = [...this.previousDevices.values()].filter(
+            (device) => !currentDeviceKeys.has(this.getDeviceKey(device.ipAddress, device.source, device.deviceType))
+        );
 
-        // Clear all metrics
-        // This ensures removed devices' metrics are completely purged
-        register.clear();
+        this.logger.write_debug(this.originator + ".removeRemovedDeviceMetrics", `Previous keys: ${[...this.previousDevices.keys()].join(", ")}`);
+        this.logger.write_debug(this.originator + ".removeRemovedDeviceMetrics", `Current keys: ${[...currentDeviceKeys].join(", ")}`);
+        this.logger.write_debug(this.originator + ".removeRemovedDeviceMetrics", `Removed keys: ${removedDevices.map((d) => this.getDeviceKey(d.ipAddress, d.source, d.deviceType)).join(", ")}`);
 
-        // Re-register system-level gauges (these don't have labels, so they persist across reloads)
-        this.prometheus_Pinger_Cycle_Duration_Histogram = new Histogram({
-            name: `pinger_cycle_duration_seconds`,
-            help: "Duration of complete ping cycles in seconds.",
-            buckets: [1, 5, 10, 30, 60, 120, 300],
-        });
+        for (const device of removedDevices) {
+            this.removeDeviceMetrics(device);
+        }
 
-        this.prometheus_Pinger_Devices_Up_Gauge = new Gauge({
-            name: `pinger_devices_up`,
-            help: "Number of devices currently reachable.",
-        });
+        this.previousDevices = new Map(
+            this.configuration.devices.map((device) =>
+                [this.getDeviceKey(device.ipAddress, device.source, device.deviceType), device] as const
+            )
+        );
 
-        this.prometheus_Pinger_Devices_Down_Gauge = new Gauge({
-            name: `pinger_devices_down`,
-            help: "Number of devices currently unreachable.",
-        });
-
-        // Re-create gauges for all current devices
-        this.createAllDeviceGauges();
-
-        this.logger.write_info(this.originator + ".cleanupOrphanedGauges", `Cleanup complete. ${this.configuration.devices.length} devices remaining.`);
+        if (removedDevices.length > 0) {
+            this.logger.write_info(this.originator + ".removeRemovedDeviceMetrics", `Removed ${removedDevices.length} device(s). ${this.configuration.devices.length} devices remaining.`);
+        } else {
+            this.logger.write_debug(this.originator + ".removeRemovedDeviceMetrics", `No devices to remove.`);
+        }
     }
 
     /**
@@ -254,35 +287,36 @@ export class Pinger implements dli.IPinger {
     }
 
     /**
-     * Rebuilds the Prometheus gauges for device-specific metrics.
-     * Call this after configuration changes to ensure metrics only include current devices.
+     * Applies an accepted configuration to the running pinger: swaps the
+     * live configuration and removes the metric series of any devices that
+     * are no longer configured. Only call this when no ping cycle is in
+     * flight (see updateConfig).
      */
-    private rebuildPrometheusGauges(): void {
-        // Get current device keys for tracking
-        const currentDeviceKeys = new Set<string>();
-        for (const device of this.configuration.devices) {
-            const key = this.getDeviceKey(device.ipAddress, device.source, device.deviceType);
-            currentDeviceKeys.add(key);
-        }
-
-        // Clean up gauges for removed devices before updating tracked keys
-        this.cleanupOrphanedGauges(currentDeviceKeys);
-
-        // Update previous device keys for next comparison
-        this.previousDeviceKeys = currentDeviceKeys;
-
-        this.logger.write_info(this.originator + ".rebuildPrometheusGauges", `Rebuilt gauges for ${this.configuration.devices.length} devices.`);
+    private applyConfigUpdate(config: dli.IConfig, config_str: string): void {
+        this.configuration = config;
+        this.config_str = config_str;
+        this.removeRemovedDeviceMetrics();
+        this.logger.write_info(this.originator + ".applyConfigUpdate", `Configuration updated. ${this.configuration.devices.length} devices configured.`);
     }
 
     /**
      * Updates the configuration at runtime without restarting the service.
      * This allows hot-reloading of the configuration from disk.
+     *
+     * If a ping cycle is in flight the accepted configuration is held as
+     * pending and applied at the next cycle boundary (top of the loop in
+     * run()), so the current cycle completes under its original device
+     * snapshot and no stale in-flight ping can republish the metrics of a
+     * device that is being removed.
      */
     public updateConfig(config: dli.IConfig, config_str: string): void {
-        this.configuration = config;
-        this.config_str = config_str;
-        this.rebuildPrometheusGauges();
-        this.logger.write_info(this.originator + ".updateConfig", `Configuration updated. ${this.configuration.devices.length} devices configured.`);
+        if (this.ping_cycle_in_flight) {
+            this.pending_update = { config, config_str };
+            this.logger.write_info(this.originator + ".updateConfig", `Ping cycle in flight; configuration update pending until the cycle boundary. ${config.devices.length} devices configured.`);
+            return;
+        }
+
+        this.applyConfigUpdate(config, config_str);
     }
 
     /**
@@ -338,6 +372,9 @@ export class Pinger implements dli.IPinger {
      * termination.
      */
     public async close(): Promise<void> {
+        // stop the run() loop at its next check
+        this.closed = true;
+
         // close the net-ping session
         this.ip_pinger.close();
 
@@ -369,7 +406,19 @@ export class Pinger implements dli.IPinger {
         this.logger.write_debug(this.originator + ".run", `Pinger Loop Cycle Started.`);
 
         // loop-it
-        while (true) {
+        while (!this.closed) {
+            // Apply a configuration update that was requested while the
+            // previous cycle was still in flight. All of that cycle's pings
+            // have completed here, so removing the now-orphaned devices'
+            // metric series cannot be raced by a stale in-flight result.
+            if (this.pending_update !== undefined) {
+                const { config, config_str } = this.pending_update;
+                this.pending_update = undefined;
+                this.applyConfigUpdate(config, config_str);
+            }
+
+            this.ping_cycle_in_flight = true;
+
             // log-it
             this.logger.write_debug(this.originator + ".run", `PINGING STARTED. Pinging ${this.configuration.devices.length} devices.`);
 
@@ -460,6 +509,10 @@ export class Pinger implements dli.IPinger {
             if (this.prometheus_Pinger_Cycle_Duration_Histogram) {
                 this.prometheus_Pinger_Cycle_Duration_Histogram.observe(cycle_duration_seconds);
             }
+
+            // All pings of this cycle have completed and their results are
+            // fully processed; configuration updates may now apply directly.
+            this.ping_cycle_in_flight = false;
 
             // log-it
             this.logger.write_debug(this.originator + ".run", `PINGING COMPLETE. ${upCount} devices up, ${downCount} devices down.`, cycle_start_date);
@@ -584,8 +637,9 @@ export class Pinger implements dli.IPinger {
 
     /**
      * Classifies the type of ICMP/error encountered during ping.
+     * The result is always one of the finite PING_ERROR_TYPES label values.
      */
-    private getErrorType(error: Error): string {
+    private getErrorType(error: Error): PingErrorType {
         if (error instanceof Error) {
             const msg = error.message.toLowerCase();
             if (msg.includes("timeout") || msg.includes("timed out")) {

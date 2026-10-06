@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.2 (release codename: Cobalt Fox)
+**Version:** 1.11.3 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -102,7 +102,7 @@ while (true):
 - `pinged_errors_total` (Counter) — Total error count by type. Labels: `ipAddress`, `deviceName`, `deviceType`, `errorType`
   - Error types: `timeout`, `host_unreachable`, `network_unreachable`, `ttl_exceeded`, `other`
 
-**Note on Memory Management:** The `rebuildPrometheusGauges()` method does NOT call `register.clear()` to avoid memory leaks associated with frequent registry clearing (prom-client#567). Device-specific gauges are replaced by creating new instances; non-device metrics persist across config reloads.
+**Note on Metric History Management:** All Prometheus metrics are process-lived objects created once at construction. When a config reload removes devices, only that device's label series are deleted via `metric.remove(labels)` (including every `errorType` combination of the error counter); `register.clear()` is never called, so retained devices' and the system-level metrics' history is preserved. Config updates requested while a ping cycle is in flight are held as pending and applied at the cycle boundary, so a stale in-flight ping cannot republish a removed device's series.
 
 ### Configuration (`config.yml`)
 ```yaml

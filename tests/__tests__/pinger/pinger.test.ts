@@ -7,7 +7,7 @@ import http from "http";
 import { Pinger } from "../../../src/Pinger";
 import { API_PORT, NoOpLogger } from "../../../src/common";
 import { register } from "prom-client";
-import type { Gauge } from "prom-client";
+import type { Counter, Gauge, Histogram } from "prom-client";
 import type { IConfig, IDevice } from "../../../src/interfaces";
 
 const deviceA: IDevice = { source: "Device A", ipAddress: "10.0.0.1", deviceType: "sensor" };
@@ -178,4 +178,128 @@ describe("Pinger.updateConfig (hot-reloadable settings)", () => {
         expect(live.devices).toHaveLength(2);
         expect(live.devices.map((device) => device.ipAddress)).toEqual([deviceA.ipAddress, deviceB.ipAddress]);
     });
+});
+
+// Prometheus metric objects exposed privately by Pinger, for test assertions
+function pingerMetrics(pinger: Pinger): {
+    prometheus_Pinger_Up_Gauge: Gauge;
+    prometheus_Pinger_Roundtrip_Histogram: Histogram;
+    prometheus_Pinger_Cycle_Duration_Histogram: Histogram;
+    prometheus_Pinger_Error_Total: Counter;
+} {
+    return pinger as unknown as {
+        prometheus_Pinger_Up_Gauge: Gauge;
+        prometheus_Pinger_Roundtrip_Histogram: Histogram;
+        prometheus_Pinger_Cycle_Duration_Histogram: Histogram;
+        prometheus_Pinger_Error_Total: Counter;
+    };
+}
+
+const deviceALabels = { ipAddress: deviceA.ipAddress, deviceName: deviceA.source, deviceType: deviceA.deviceType };
+const deviceBLabels = { ipAddress: deviceB.ipAddress, deviceName: deviceB.source, deviceType: deviceB.deviceType };
+
+async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 10000): Promise<void> {
+    const start = Date.now();
+    for (;;) {
+        if (await check()) return;
+        if (Date.now() - start > timeoutMs) {
+            throw new Error(`waitFor timed out after ${timeoutMs}ms`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+}
+
+describe("Pinger.updateConfig (Prometheus history preservation)", () => {
+    it("removing device B preserves device A's error counter and drops B's series", async () => {
+        const pinger = await createPinger(makeConfig([deviceA, deviceB]));
+        const metrics = pingerMetrics(pinger);
+
+        metrics.prometheus_Pinger_Error_Total.inc({ ...deviceALabels, errorType: "timeout" });
+        metrics.prometheus_Pinger_Error_Total.inc({ ...deviceBLabels, errorType: "timeout" });
+
+        pinger.updateConfig(makeConfig([deviceA]), "remove device B");
+
+        const output = await register.metrics();
+        // A's accumulated counter value survives the reload
+        expect(output).toMatch(new RegExp(`^pinged_errors_total\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*errorType="timeout"\\} 1$`, "m"));
+        // B leaves no series behind
+        expect(output).not.toContain(deviceB.ipAddress);
+    });
+
+    it("removing device B preserves device A's roundtrip histogram and drops B's series", async () => {
+        const pinger = await createPinger(makeConfig([deviceA, deviceB]));
+        const metrics = pingerMetrics(pinger);
+
+        metrics.prometheus_Pinger_Roundtrip_Histogram.observe(deviceALabels, 0.012);
+        metrics.prometheus_Pinger_Roundtrip_Histogram.observe(deviceBLabels, 0.012);
+
+        pinger.updateConfig(makeConfig([deviceA]), "remove device B");
+
+        const output = await register.metrics();
+        // A's histogram count and sum are intact
+        expect(output).toMatch(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m"));
+        expect(output).toMatch(new RegExp(`^pinged_roundtrip_seconds_sum\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 0\\.012$`, "m"));
+        expect(output).not.toContain(deviceB.ipAddress);
+    });
+
+    it("removing a device does not reset the process-wide cycle duration histogram", async () => {
+        const pinger = await createPinger(makeConfig([deviceA, deviceB]));
+        const metrics = pingerMetrics(pinger);
+
+        metrics.prometheus_Pinger_Cycle_Duration_Histogram.observe(1.5);
+        metrics.prometheus_Pinger_Cycle_Duration_Histogram.observe(2.5);
+
+        pinger.updateConfig(makeConfig([deviceA]), "remove device B");
+
+        const output = await register.metrics();
+        expect(output).toMatch(/pinger_cycle_duration_seconds_count 2/);
+        expect(output).toMatch(/pinger_cycle_duration_seconds_sum 4/);
+        expect(output).not.toContain(deviceB.ipAddress);
+    });
+
+    it("a stale in-flight ping for a removed device cannot leave metrics behind", async () => {
+        const pinger = await createPinger(makeConfig([deviceA, deviceB], { intervalSecs: 1 }));
+        const metrics = pingerMetrics(pinger);
+
+        // Pre-existing history for both devices
+        metrics.prometheus_Pinger_Up_Gauge.set(deviceALabels, 1);
+        metrics.prometheus_Pinger_Up_Gauge.set(deviceBLabels, 1);
+        metrics.prometheus_Pinger_Error_Total.inc({ ...deviceALabels, errorType: "timeout" });
+
+        // Delay device B's ping completion so a removal can be requested
+        // while that cycle is still in flight
+        const netPing = jest.requireMock("net-ping") as { createSession: { mock: { results: Array<{ value: { pingHost: jest.Mock } }> } } };
+        const session = netPing.createSession.mock.results.at(-1)!.value;
+        let staleB: ((error: Error | null, target: string, sent: Date, received: Date) => void) | undefined;
+        session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            if (host === deviceB.ipAddress) {
+                staleB = callback;
+                return;
+            }
+            const sent = new Date();
+            callback(null, host, sent, new Date(sent.getTime() + 5));
+        });
+
+        const runPromise = pinger.run();
+
+        // wait until the first cycle is in flight with B's ping pending
+        await waitFor(() => staleB !== undefined);
+
+        // request the removal mid-cycle; it must apply at the cycle boundary
+        // (keep the short interval so the loop stays fast under the test clock)
+        pinger.updateConfig(makeConfig([deviceA], { intervalSecs: 1 }), "remove device B");
+
+        // let the stale B ping finish (it must not republish B after removal)
+        staleB!(null, deviceB.ipAddress, new Date(), new Date());
+
+        await waitFor(async () => !(await register.metrics()).includes(deviceB.ipAddress));
+
+        const output = await register.metrics();
+        expect(output).not.toContain(deviceB.ipAddress);
+        // A's history survived the boundary application
+        expect(output).toMatch(new RegExp(`^pinged_errors_total\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*errorType="timeout"\\} 1$`, "m"));
+
+        await pinger.close();
+        await runPromise;
+    }, 15000);
 });
