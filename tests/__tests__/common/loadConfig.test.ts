@@ -24,7 +24,6 @@ describe("loadConfig", () => {
         const fs = require("fs");
         const tempConfig = `
 logLevel: debug
-apiPort: 3300
 intervalSecs: 30
 devices:
   - source: Test Device
@@ -36,7 +35,6 @@ devices:
         const [config, configText] = loadConfig();
 
         expect(config.logLevel).toBe("debug");
-        expect(config.apiPort).toBe(3300);
         expect(config.intervalSecs).toBe(30);
         expect(config.devices).toHaveLength(1);
         expect(config.devices[0].source).toBe("Test Device");
@@ -50,7 +48,6 @@ devices:
         const fs = require("fs");
         const tempConfig = `
 logLevel: info
-apiPort: 3300
 intervalSecs: 60
 devices:
   - source: Device 1
@@ -78,7 +75,6 @@ describe("validateConfig", () => {
     it("should return ok=true for valid YAML", () => {
         const yaml = `
 logLevel: debug
-apiPort: 3300
 intervalSecs: 30
 devices:
   - source: Test
@@ -114,7 +110,6 @@ logLevel: debug
     it("should return validation errors for invalid data", () => {
         const invalidData = `
 logLevel: invalid-level
-apiPort: 3300
 intervalSecs: 30
 devices:
   - source: Test
@@ -134,7 +129,6 @@ devices:
     it("should reject invalid device types", () => {
         const invalidDeviceType = `
 logLevel: debug
-apiPort: 3300
 intervalSecs: 30
 devices:
   - source: Test
@@ -149,7 +143,6 @@ devices:
     it("should accept all valid device types", () => {
         const validTypes = `
 logLevel: debug
-apiPort: 3300
 intervalSecs: 30
 devices:
   - source: Sensor
@@ -171,7 +164,6 @@ devices:
         const yaml = `
 logLevel: debug
 alwaysLogErrors: true
-apiPort: 3300
 intervalSecs: 30
 devices:
   - source: Test
@@ -186,12 +178,30 @@ devices:
             expect((result.data as Record<string, unknown>).alwaysLogErrors).toBeUndefined();
         }
     });
+
+    it("ignores unknown configuration keys such as the removed apiPort", () => {
+        const yaml = `
+logLevel: debug
+apiPort: 3301
+intervalSecs: 30
+devices:
+  - source: Test
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
+`;
+
+        const result = validateConfig(yaml);
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect((result.data as Record<string, unknown>).apiPort).toBeUndefined();
+        }
+    });
 });
 
 describe("IPv4 validation", () => {
     const yamlForIp = (ip: string) => `
 logLevel: debug
-apiPort: 3300
 intervalSecs: 30
 devices:
   - source: Test

@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.1 (release codename: Cobalt Fox)
+**Version:** 1.11.2 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -43,7 +43,7 @@ npm run lint    # Run ESLint
 ```
 
 **Architecture:**
-- Single Express server on configurable port (default 3300)
+- Single Express server on the fixed port `API_PORT` (3300, defined in `src/common.ts`); the Docker port mapping and health checks are bound to it, so it is not a configuration option
 - Scheduled ping loop using net-ping library
 - Prometheus gauge/histogram metrics for ping status and timing
 - YAML configuration with Zod validation
@@ -107,7 +107,6 @@ while (true):
 ### Configuration (`config.yml`)
 ```yaml
 logLevel: debug
-apiPort: 3300
 intervalSecs: 60
 devices:
   - source: "device-name"
@@ -126,7 +125,7 @@ Configuration can be updated at runtime:
 Settings split into two groups:
 
 - **Hot-reloadable** (applied immediately): `intervalSecs`, `devices`
-- **Restart-required** (active only after a process restart): `apiPort`, `logLevel`, `lokiUrl`, `lokiEnabled`
+- **Restart-required** (active only after a process restart): `logLevel`, `lokiUrl`, `lokiEnabled`
 
 `/write-config` and `/reload-config` report this via a machine-readable `restartRequired` response field.
 
@@ -167,7 +166,7 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 
 ## Ports
 
-- **HTTP API (includes metrics)**: Port 3300 (default, configurable via `apiPort`)
+- **HTTP API (includes metrics)**: Fixed port 3300 (`API_PORT` constant in `src/common.ts`; not configurable at runtime)
 
 ## Testing
 

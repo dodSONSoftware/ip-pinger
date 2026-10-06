@@ -191,9 +191,9 @@ export const endpointsInfo: EndpointsInfo = {
             name: "Write Config",
             route: "/write-config",
             verb: "POST",
-            requestBody: "JSON object with keys: logLevel (string), apiPort (positive integer), intervalSecs (positive integer), devices (array of objects with source, ipAddress, deviceType), lokiUrl (string, optional), lokiEnabled (boolean, optional)",
+            requestBody: "JSON object with keys: logLevel (string), intervalSecs (positive integer), devices (array of objects with source, ipAddress, deviceType), lokiUrl (string, optional), lokiEnabled (boolean, optional). The API port is fixed at 3300 and is not configurable.",
             responseBody: "{ success: boolean, restartRequired: boolean, message: string }",
-            description: "Updates the configuration and reloads it. Hot-reloadable settings (intervalSecs, devices) apply immediately; apiPort, logLevel, lokiUrl, and lokiEnabled require a process restart."
+            description: "Updates the configuration and reloads it. Hot-reloadable settings (intervalSecs, devices) apply immediately; logLevel, lokiUrl, and lokiEnabled require a process restart."
         },
         {
             name: "Reload Config",
@@ -420,7 +420,6 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *             example:
      *               {
      *                  "logLevel": "info",
-     *                  "apiPort": 3300,
      *                  "intervalSecs": 30,
      *                  "devices": [
      *                      {

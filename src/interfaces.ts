@@ -87,7 +87,6 @@ export type LogLevels = "debug" | "info" | "warn" | "error";
 export interface IConfig {
     [key: string]: unknown;
     logLevel: LogLevels;
-    apiPort: number;
     intervalSecs: number;
     devices: IDevice[];
     lokiUrl?: string;

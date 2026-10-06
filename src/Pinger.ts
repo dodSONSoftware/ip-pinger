@@ -4,6 +4,7 @@
  */
 
 import type * as dli from "./interfaces";
+import { API_PORT } from "./common";
 import { ensureError, sleep, sleep_from_start } from "./systemFunctions";
 import { register, Gauge, Histogram, Counter } from "prom-client";
 import type { Server } from "http";
@@ -38,6 +39,8 @@ export class Pinger implements dli.IPinger {
     // ----
     private readonly ip_pinger: Session;
     private readonly express: express.Application;
+    // HTTP listener port; defaults to the application-wide API_PORT
+    private readonly api_port: number;
     // Set by start() once the listener is up; undefined until then
     private api_server?: Server;
     // ----
@@ -55,11 +58,12 @@ export class Pinger implements dli.IPinger {
     // ********
     // ******** ctor
 
-    constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger, startDate: Date) {
+    constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger, startDate: Date, port: number = API_PORT) {
         // save parameters
         this.configuration = config;
         this.config_str = config_str;
         this.logger = logger;
+        this.api_port = port;
 
         // ******** CREATE PROMETHEUS GAUGES
 
@@ -289,7 +293,7 @@ export class Pinger implements dli.IPinger {
      * propagate to the top-level application boundary.
      */
     public async start(): Promise<void> {
-        const port = this.configuration.apiPort;
+        const port = this.api_port;
         const server = this.express.listen(port);
 
         try {

@@ -19,7 +19,6 @@ const deviceB: IDevice = { source: "Device B", ipAddress: "10.0.0.2", deviceType
 // restart-required baseline the config endpoints compare against.
 const startupConfig: IConfig = {
     logLevel: "info",
-    apiPort: 3300,
     intervalSecs: 30,
     devices: [deviceA, deviceB],
     lokiEnabled: false,
@@ -28,7 +27,6 @@ const startupConfig: IConfig = {
 function yamlFor(config: IConfig): string {
     const lines: string[] = [
         `logLevel: ${config.logLevel}`,
-        `apiPort: ${config.apiPort}`,
         `intervalSecs: ${config.intervalSecs}`,
         `lokiEnabled: ${config.lokiEnabled}`,
     ];
@@ -132,7 +130,6 @@ describe("/write-config (hot-reloadable settings)", () => {
     it("applies intervalSecs and devices changes immediately without a restart", async () => {
         const { status, body } = await postConfig({
             logLevel: "info",
-            apiPort: 3300,
             intervalSecs: 45,
             lokiEnabled: false,
             devices: [deviceA],
@@ -150,14 +147,12 @@ describe("/write-config (hot-reloadable settings)", () => {
 
 describe("/write-config (restart-required settings)", () => {
     it.each([
-        ["apiPort", { apiPort: 3301 }],
         ["logLevel", { logLevel: "debug" }],
         ["lokiUrl", { lokiUrl: "http://localhost:3100" }],
-        ["lokiEnabled", { lokiEnabled: true }],
+        ["lokiEnabled", { lokiEnabled: true, lokiUrl: "http://localhost:3100" }],
     ])("reports restartRequired when %s changes", async (_field, overrides) => {
         const { status, body } = await postConfig({
             logLevel: "info",
-            apiPort: 3300,
             intervalSecs: 30,
             lokiEnabled: false,
             devices: [deviceA],
@@ -175,8 +170,7 @@ describe("/write-config (restart-required settings)", () => {
 describe("/write-config (mixed changes)", () => {
     it("applies hot-reloadable values immediately, reports restartRequired, and persists the full payload", async () => {
         const { status, body } = await postConfig({
-            logLevel: "info",
-            apiPort: 3399,
+            logLevel: "debug",
             intervalSecs: 50,
             lokiEnabled: false,
             devices: [deviceA],
@@ -189,9 +183,9 @@ describe("/write-config (mixed changes)", () => {
         expect(appliedConfig().intervalSecs).toBe(50);
 
         // The persisted configuration contains the complete submitted
-        // configuration, including the restart-required port change
+        // configuration, including the restart-required logLevel change
         const read = await get("/read-config");
-        expect(read.body.apiPort).toBe(3399);
+        expect(read.body.logLevel).toBe("debug");
         expect(read.body.intervalSecs).toBe(50);
     });
 });
@@ -214,7 +208,6 @@ describe("/write-config (validation)", () => {
 
         const { status, body } = await postConfig({
             logLevel: "info",
-            apiPort: 3300,
             intervalSecs: 30,
             lokiEnabled: false,
             devices: [{ source: "Bad Device", ipAddress: "256.0.0.1", deviceType: "sensor" }],
@@ -231,7 +224,6 @@ describe("removed alwaysLogErrors option", () => {
     it("accepts payloads still containing the removed key and does not persist it", async () => {
         const { status } = await postConfig({
             logLevel: "info",
-            apiPort: 3300,
             intervalSecs: 30,
             lokiEnabled: false,
             devices: [deviceA],
@@ -241,5 +233,25 @@ describe("removed alwaysLogErrors option", () => {
         expect(status).toBe(200);
         const read = await get("/read-config");
         expect(read.body.alwaysLogErrors).toBeUndefined();
+    });
+});
+
+describe("removed apiPort option", () => {
+    it("ignores apiPort in write-config payloads and does not report a restart", async () => {
+        const { status, body } = await postConfig({
+            logLevel: "info",
+            apiPort: 3301,
+            intervalSecs: 30,
+            lokiEnabled: false,
+            devices: [deviceA],
+        });
+
+        // The fixed API port (3300) cannot be changed at runtime, so the
+        // obsolete field must be dropped, not persisted as a mismatch source
+        expect(status).toBe(200);
+        expect(body.success).toBe(true);
+        expect(body.restartRequired).toBe(false);
+        const read = await get("/read-config");
+        expect(read.body.apiPort).toBeUndefined();
     });
 });

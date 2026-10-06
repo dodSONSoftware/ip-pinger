@@ -1,5 +1,4 @@
 logLevel: debug
-apiPort: 3300
 intervalSecs: 30
 devices:
   - source: Air Light 1

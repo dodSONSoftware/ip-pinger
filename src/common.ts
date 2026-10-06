@@ -21,6 +21,13 @@ export function getConfigPath(): string {
     return CONFIG_PATH;
 }
 
+/**
+ * Fixed HTTP API port. The Docker deployment (port publishing and health
+ * checks) is bound to this port, so the listener port is an application
+ * constant rather than a runtime configuration setting.
+ */
+export const API_PORT = 3300;
+
 /* ---------- Schema ---------- */
 
 const DeviceSchema = z.object({
@@ -31,7 +38,6 @@ const DeviceSchema = z.object({
 
 const ConfigSchema = z.object({
     logLevel: z.enum(["debug", "info", "warn", "error"] as const),
-    apiPort: z.number().int().positive(),
     intervalSecs: z.number().int().positive(),
     devices: z.array(DeviceSchema),
     lokiUrl: z.string().url().optional(),
@@ -44,10 +50,10 @@ export type Config = z.infer<typeof ConfigSchema> & { logLevel: LogLevels };
 
 /* ---------- Restart-required settings ---------- */
 
-// Settings consumed only during startup (Express listen port, Logger level,
-// Loki transport). They remain active until the process restarts, so a
-// config change touching any of them must be reported as restart-required.
-export const RESTART_REQUIRED_FIELDS = ["apiPort", "logLevel", "lokiUrl", "lokiEnabled"] as const;
+// Settings consumed only during startup (Logger level, Loki transport).
+// They remain active until the process restarts, so a config change
+// touching any of them must be reported as restart-required.
+export const RESTART_REQUIRED_FIELDS = ["logLevel", "lokiUrl", "lokiEnabled"] as const;
 export type RestartRequiredField = (typeof RESTART_REQUIRED_FIELDS)[number];
 export type RestartRequiredSettings = Pick<IConfig, RestartRequiredField>;
 
@@ -56,7 +62,6 @@ export type RestartRequiredSettings = Pick<IConfig, RestartRequiredField>;
  */
 export function getRestartRequiredSettings(config: IConfig): RestartRequiredSettings {
     return {
-        apiPort: config.apiPort,
         logLevel: config.logLevel,
         lokiUrl: config.lokiUrl,
         lokiEnabled: config.lokiEnabled,

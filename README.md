@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.1.
+**Release:** Cobalt Fox — version 1.11.2.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -74,7 +74,6 @@ Create or modify `src/config.yml`:
 
 ```yaml
 logLevel: debug
-apiPort: 3300
 intervalSecs: 30
 devices:
   - source: "Device Name"
@@ -82,12 +81,15 @@ devices:
     deviceType: sensor|server|kiosk
 ```
 
+The HTTP API (including `/metrics`) always listens on the fixed port **3300**,
+which the Docker deployment and health checks are bound to. It is not a
+configuration option.
+
 ### Configuration Options
 
 | Option | Description | Default | Valid Values |
 |--------|-------------|---------|--------------|
 | `logLevel` | Logging verbosity | `info` | `debug`, `info`, `warn`, `error` |
-| `apiPort` | HTTP API port | `3300` | Positive integer |
 | `intervalSecs` | Ping cycle interval | `60` | Positive integer |
 | `devices` | Array of devices to ping | required | Array of device objects |
 
@@ -112,7 +114,7 @@ Configuration can be updated at runtime:
 Settings split into two groups:
 
 - **Hot-reloadable** (applied immediately): `intervalSecs`, `devices`
-- **Restart-required** (active only after a process restart): `apiPort`, `logLevel`, `lokiUrl`, `lokiEnabled`
+- **Restart-required** (active only after a process restart): `logLevel`, `lokiUrl`, `lokiEnabled`
 
 `/write-config` and `/reload-config` report this via a machine-readable
 `restartRequired` field in the response.

@@ -5,7 +5,7 @@
 
 import http from "http";
 import { Pinger } from "../../../src/Pinger";
-import { NoOpLogger } from "../../../src/common";
+import { API_PORT, NoOpLogger } from "../../../src/common";
 import { register } from "prom-client";
 import type { Gauge } from "prom-client";
 import type { IConfig, IDevice } from "../../../src/interfaces";
@@ -16,20 +16,21 @@ const deviceB: IDevice = { source: "Device B", ipAddress: "10.0.0.2", deviceType
 function makeConfig(devices: IDevice[], overrides: Partial<IConfig> = {}): IConfig {
     return {
         logLevel: "info",
-        apiPort: 0,
         intervalSecs: 30,
         devices,
         ...overrides,
     };
 }
 
-// The Pinger starts an Express server on the configured API port via start().
-// Track every constructed Pinger so afterAll can close its server (and
-// net-ping session) via close(), letting jest exit cleanly.
+// The Pinger starts an Express server via start() on the fixed API port
+// (API_PORT) unless a test-specific port is passed. Track every constructed
+// Pinger so afterAll can close its server (and net-ping session) via
+// close(), letting jest exit cleanly.
 const pingers: Pinger[] = [];
 
-async function createPinger(config: IConfig): Promise<Pinger> {
-    const pinger = new Pinger(config, "initial config", new NoOpLogger(), new Date());
+async function createPinger(config: IConfig, port: number = 0): Promise<Pinger> {
+    // port 0 = ephemeral port, so parallel pingers never collide
+    const pinger = new Pinger(config, "initial config", new NoOpLogger(), new Date(), port);
     pingers.push(pinger);
     await pinger.start();
     return pinger;
@@ -120,7 +121,7 @@ describe("Pinger.close() (lifecycle)", () => {
 
 describe("Pinger.start() (API listener startup)", () => {
     it("resolves once the API server is listening", async () => {
-        const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date());
+        const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date(), 0);
         pingers.push(pinger);
 
         await pinger.start();
@@ -129,13 +130,31 @@ describe("Pinger.start() (API listener startup)", () => {
         expect(api_server.listening).toBe(true);
     });
 
+    it("starts on the fixed API_PORT (3300) by default", async () => {
+        expect(API_PORT).toBe(3300);
+
+        // Construct without a test-specific port: the default must be 3300.
+        // If the port is free the server binds 3300; if it is occupied, the
+        // bind error names the port it attempted.
+        const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date());
+        pingers.push(pinger);
+        try {
+            await pinger.start();
+            const api_server = (pinger as unknown as { api_server: http.Server }).api_server;
+            expect((api_server.address() as { port: number }).port).toBe(3300);
+        } catch (error) {
+            expect(String(error)).toContain("EADDRINUSE");
+            expect(String(error)).toContain("3300");
+        }
+    });
+
     it("rejects when the API port is already in use (EADDRINUSE) and the pinger never reaches a listening state", async () => {
         // Occupy an ephemeral port with a throwaway server
         const blocker = http.createServer();
         await new Promise<void>((resolve) => blocker.once("listening", () => resolve()).listen(0));
         const blockerPort = (blocker.address() as { port: number }).port;
 
-        const pinger = new Pinger(makeConfig([deviceA], { apiPort: blockerPort }), "initial config", new NoOpLogger(), new Date());
+        const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date(), blockerPort);
         pingers.push(pinger);
 
         await expect(pinger.start()).rejects.toThrow("EADDRINUSE");
