@@ -24,25 +24,20 @@ function makeConfig(devices: IDevice[], overrides: Partial<IConfig> = {}): IConf
 }
 
 // The Pinger constructor starts an Express server on the configured API port.
-// Express creates it via http.createServer, so intercept that to capture the
-// servers and close them later, letting jest exit cleanly.
-const capturedServers: http.Server[] = [];
-const realCreateServer = http.createServer;
+// Track every constructed Pinger so afterAll can close its server (and
+// net-ping session) via close(), letting jest exit cleanly.
+const pingers: Pinger[] = [];
 
-beforeAll(() => {
-    jest.spyOn(http, "createServer").mockImplementation((..._args: unknown[]): http.Server => {
-        // Express calls http.createServer(requestListener)
-        const server = realCreateServer(...(_args as [http.RequestListener]));
-        capturedServers.push(server);
-        return server;
-    });
-});
+function createPinger(config: IConfig): Pinger {
+    const pinger = new Pinger(config, "initial config", new NoOpLogger(), new Date());
+    pingers.push(pinger);
+    return pinger;
+}
 
-afterAll(() => {
-    for (const server of capturedServers) {
-        server.close();
+afterAll(async () => {
+    for (const pinger of pingers) {
+        await pinger.close();
     }
-    jest.restoreAllMocks();
 });
 
 afterEach(() => {
@@ -52,7 +47,7 @@ afterEach(() => {
 
 describe("Pinger first configuration reload (stale Prometheus series)", () => {
     it("removes metric series for devices removed on the first reload after construction", async () => {
-        const pinger = new Pinger(makeConfig([deviceA, deviceB]), "initial config", new NoOpLogger(), new Date());
+        const pinger = createPinger(makeConfig([deviceA, deviceB]));
         const getUpGauge = () =>
             (pinger as unknown as { prometheus_Pinger_Up_Gauge: Gauge }).prometheus_Pinger_Up_Gauge;
 
@@ -85,7 +80,7 @@ describe("Pinger first configuration reload (stale Prometheus series)", () => {
     });
 
     it("keeps every series when no devices are removed on the first reload", async () => {
-        const pinger = new Pinger(makeConfig([deviceA, deviceB]), "initial config", new NoOpLogger(), new Date());
+        const pinger = createPinger(makeConfig([deviceA, deviceB]));
         const getUpGauge = () =>
             (pinger as unknown as { prometheus_Pinger_Up_Gauge: Gauge }).prometheus_Pinger_Up_Gauge;
 
@@ -107,9 +102,24 @@ describe("Pinger first configuration reload (stale Prometheus series)", () => {
     });
 });
 
+describe("Pinger.close() (lifecycle)", () => {
+    it("closes the HTTP API server and the net-ping session", async () => {
+        const netPing = jest.requireMock("net-ping") as { createSession: { mock: { results: Array<{ value: { close: jest.Mock } }> } } };
+        const pinger = createPinger(makeConfig([deviceA]));
+        const session = netPing.createSession.mock.results.at(-1)!.value;
+        const api_server = (pinger as unknown as { api_server: http.Server }).api_server;
+        expect(api_server.listening).toBe(true);
+
+        await pinger.close();
+
+        expect(session.close).toHaveBeenCalledTimes(1);
+        expect(api_server.listening).toBe(false);
+    });
+});
+
 describe("Pinger.updateConfig (hot-reloadable settings)", () => {
     it("applies new intervalSecs and devices to the running pinger immediately", () => {
-        const pinger = new Pinger(makeConfig([deviceA], { intervalSecs: 30 }), "initial config", new NoOpLogger(), new Date());
+        const pinger = createPinger(makeConfig([deviceA], { intervalSecs: 30 }));
 
         pinger.updateConfig(makeConfig([deviceA, deviceB], { intervalSecs: 45 }), "updated config");
 

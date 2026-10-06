@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Titanium Fox — version 1.10.1.
+**Release:** Cobalt Fox — version 1.11.0.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -28,6 +28,7 @@ Results are exposed via Prometheus-compatible metrics at the `/metrics` endpoint
 - **Scheduled pinging**: Configurable polling interval
 - **Prometheus metrics**: Full metric suite including histograms for latency distribution
 - **Hot-reload configuration**: Update device lists and settings without restarting
+- **Graceful shutdown**: SIGINT/SIGTERM cleanly close the HTTP API server and net-ping session before exiting
 - **Swagger UI**: Interactive API documentation at `/swagger`
 - **Multi-port support**: Combined API and metrics on single port
 
@@ -182,6 +183,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.0 | Add graceful shutdown (`Pinger.close()`) and remove unused public surface |
 | v1.9.5 | Remove unused port 9090 references |
 | v1.9.4 | Add README.md documentation |
 | v1.9.3 | Fix 'metric already registered' error on config reload |

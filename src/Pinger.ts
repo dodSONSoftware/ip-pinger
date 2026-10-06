@@ -4,8 +4,9 @@
  */
 
 import type * as dli from "./interfaces";
-import { get_timestamp, sleep, sleep_from_start } from "./systemFunctions";
+import { sleep, sleep_from_start } from "./systemFunctions";
 import { register, Gauge, Histogram, Counter } from "prom-client";
+import type { Server } from "http";
 import type { NextFunction } from "express";
 import express from "express";
 import bodyParser from "body-parser";
@@ -30,8 +31,6 @@ export class Pinger implements dli.IPinger {
     // ********
     // ******** private properties
 
-    static thisdude: dli.IPinger;
-
     private readonly originator: string = "Pinger";
     private config_str: string;
     private configuration: dli.IConfig;
@@ -39,6 +38,7 @@ export class Pinger implements dli.IPinger {
     // ----
     private readonly ip_pinger: Session;
     private readonly express: express.Application;
+    private api_server: Server;
     // ----
     private prometheus_Pinger_Up_Gauge!: Gauge;
     private prometheus_Pinger_Roundtrip_Gauge!: Gauge;
@@ -55,8 +55,6 @@ export class Pinger implements dli.IPinger {
     // ******** ctor
 
     constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger, startDate: Date) {
-        Pinger.thisdude = this;
-
         // save parameters
         this.configuration = config;
         this.config_str = config_str;
@@ -118,12 +116,12 @@ export class Pinger implements dli.IPinger {
         setupSwagger(this.express as express.Express);
 
         // Start the express server on API port for all endpoints including metrics
-        const apiServer = this.express.listen(this.configuration.apiPort, () => {
+        this.api_server = this.express.listen(this.configuration.apiPort, () => {
             this.logger.write_info(this.originator + ".ctor", `API Server is running at http://localhost:${this.configuration.apiPort}`);
             this.logger.write_info(this.originator + ".ctor", `Prometheus metrics can be found at http://localhost:${this.configuration.apiPort}/metrics`);
         });
 
-        apiServer.on('error', (err: Error) => {
+        this.api_server.on('error', (err: Error) => {
             this.logger.write_error(this.originator + ".ctor", `API server error: ${err.message}`);
         });
 
@@ -293,10 +291,24 @@ export class Pinger implements dli.IPinger {
     }
 
     /**
-     * Rebuilds the Prometheus gauges. Public wrapper for IPinger interface.
+     * Closes the HTTP API server and the net-ping session, giving the
+     * application an explicit lifecycle boundary for tests and graceful
+     * termination.
      */
-    public rebuildGauges(): void {
-        this.rebuildPrometheusGauges();
+    public async close(): Promise<void> {
+        // close the net-ping session
+        this.ip_pinger.close();
+
+        // close the HTTP API server (if it is listening)
+        if (this.api_server?.listening) {
+            await new Promise<void>((resolve) => {
+                this.api_server.close(() => resolve());
+                // close idle keep-alive connections so shutdown is prompt
+                this.api_server.closeAllConnections();
+            });
+        }
+
+        this.logger.write_info(this.originator + ".close", `Pinger closed.`);
     }
 
     public getLogger(): dli.ILogger {

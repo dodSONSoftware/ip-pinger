@@ -57,6 +57,20 @@ function initialize() {
     logger.write_info(originator + ".initialize", `IP Pinger Application initialized.`, start_date);
 }
 
+// ******** graceful shutdown
+
+async function shutdown(signal: string) {
+    logger.write_info(originator + ".shutdown", `Received ${signal}, shutting down.`);
+    try {
+        await pinger_dude.close();
+    } catch (error) {
+        const err = sysFunc.ensureError(error);
+        logger.write_error(originator + ".shutdown", `Error during shutdown: ${err.name}: ${err.message}`);
+    } finally {
+        process.exit(0);
+    }
+}
+
 // ******** main function
 
 async function main() {
@@ -77,4 +91,8 @@ async function main() {
 }
 
 // --------
+
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
 main();

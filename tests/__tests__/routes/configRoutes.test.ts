@@ -53,7 +53,7 @@ const fakePinger: IPinger = {
     run: jest.fn(),
     ping_device: jest.fn(async (): Promise<[boolean, number]> => [true, 10]),
     updateConfig: updateConfig,
-    rebuildGauges: jest.fn(),
+    close: jest.fn(),
 };
 
 let server: http.Server;

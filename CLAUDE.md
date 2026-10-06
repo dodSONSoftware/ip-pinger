@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.10.1 (release codename: Titanium Fox)
+**Version:** 1.11.0 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -141,6 +141,7 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 - **Net-ping library:** Uses `createSession()` with IPv4, 16-byte packets, 1 retry, 2s timeout, 128 TTL
 - **Promise-based pinging:** `pingHost()` wrapped in Promise for async/await compatibility
 - **Prometheus gauges:** Separate gauges for up status and round-trip time
+- **Graceful shutdown:** SIGINT/SIGTERM handlers call `pinger.close()`, which closes the HTTP API server (including idle keep-alive connections) and the net-ping session before exiting
 - **Zod validation:** Schema-based config validation with readable error messages
 - **Version management:** `src/version.ts` is the version source of truth (`APP_VERSION`, reported by `/about` and the boot log); the `/git-commit` Claude Code command (`.claude/commands/git-commit.md`) bumps it in lockstep with `package.json`, derives the release codename, syncs README.md/CLAUDE.md, and commits
 

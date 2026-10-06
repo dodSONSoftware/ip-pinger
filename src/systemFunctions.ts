@@ -4,16 +4,8 @@
  */
 
 import fs from "fs";
-import * as childProc from "child_process";
 import type { ILogger } from "./interfaces";
 import { LogLevel } from "./interfaces";
-
-// **** environment variables functions
-
-export function getEnvironmentVariable<T = string>(name: string, defaultValue: T): T {
-    const value = process.env[name];
-    return value !== undefined ? (value as T) : defaultValue;
-}
 
 // **** error functions
 
@@ -206,20 +198,4 @@ export function formatElapsedTime(ms: number): string {
     const seconds_str = seconds.toString().padStart(2, "0");
     const ms_str = milliseconds.toString().padStart(3, "0");
     return `${hours_str}:${minutes_str}:${seconds_str}.${ms_str}`;
-}
-
-// **** process functions
-
-export async function executeCommandLine_Command(cmd: string): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
-        childProc.exec(cmd, (error, stdout, stderr) => {
-            if (error) {
-                reject(new Error(`Error executing script: ${error.message}`));
-            }
-            if (stderr) {
-                reject(new Error(`Script error output: ${stderr}`));
-            }
-            resolve(stdout); // Resolve with the standard output
-        });
-    });
 }
