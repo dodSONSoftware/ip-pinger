@@ -305,6 +305,10 @@ describe("multiple route instances (state isolation)", () => {
         close: jest.fn(),
     };
 
+    // Distinct startup times: each instance's /about must report its own
+    const bootA = new Date("2026-01-01T00:00:00.000Z");
+    const bootB = new Date("2026-02-03T04:05:06.000Z");
+
     let serverA: http.Server;
     let serverB: http.Server;
     let baseUrlA: string;
@@ -315,12 +319,12 @@ describe("multiple route instances (state isolation)", () => {
 
         const appA = express();
         appA.use(express.json());
-        createRoutes(appA, configA, yamlFor(configA), pingerA, new NoOpLogger(), new Date());
+        createRoutes(appA, configA, yamlFor(configA), pingerA, new NoOpLogger(), bootA);
 
         // Creating instance B must not rebind the routes registered for A
         const appB = express();
         appB.use(express.json());
-        createRoutes(appB, configB, yamlFor(configB), pingerB, new NoOpLogger(), new Date());
+        createRoutes(appB, configB, yamlFor(configB), pingerB, new NoOpLogger(), bootB);
 
         serverA = appA.listen(0);
         serverB = appB.listen(0);
@@ -415,6 +419,16 @@ describe("multiple route instances (state isolation)", () => {
         // still reports no restart for A
         const resA2 = await postConfigJson(baseUrlA, { ...configA, logLevel: "info" });
         expect(resA2.body.restartRequired).toBe(false);
+    });
+
+    it("/about reports each instance's own boot date", async () => {
+        const aboutA = await getJson(baseUrlA, "/about");
+        expect(aboutA.status).toBe(200);
+        expect((aboutA.body as { system: { bootdate: string } }).system.bootdate).toBe(bootA.toISOString());
+
+        const aboutB = await getJson(baseUrlB, "/about");
+        expect(aboutB.status).toBe(200);
+        expect((aboutB.body as { system: { bootdate: string } }).system.bootdate).toBe(bootB.toISOString());
     });
 });
 

@@ -245,8 +245,9 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     // **** initialize
     // Route state is owned by this invocation: each createRoutes() call —
     // and therefore each Pinger instance — carries its own configuration,
-    // pinger, logger, and startup baseline, so registering routes for a
-    // second instance can never rebind routes registered for a first one.
+    // pinger, logger, startup baseline, and about payload, so registering
+    // routes for a second instance can never rebind routes registered for
+    // a first one.
     let configuration = config_str;
     let configurationObj = config;
     const ip_pinger = pinger;
@@ -254,7 +255,16 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     // Startup-owned settings that remain active until the process restarts.
     // Captured once at boot so reload comparisons are never skewed by later config writes.
     const startup_settings = getRestartRequiredSettings(config);
-    aboutInformation.system.bootdate = startDate.toISOString();
+    // Instance-owned about payload: the static metadata above is shared
+    // read-only, but the system block copies this invocation's boot date so
+    // a second createRoutes() call can never overwrite a first instance's.
+    const instanceAbout: AboutInformation = {
+        ...aboutInformation,
+        system: {
+            ...aboutInformation.system,
+            bootdate: startDate.toISOString(),
+        }
+    };
 
     /**
      * @swagger
@@ -297,7 +307,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                       format: date-time
      */
     app.route("/about").get((req: express.Request, res: express.Response) => {
-        res.type(Json).status(OK).json(getAbout());
+        res.type(Json).status(OK).json(instanceAbout);
     });
 
     /**
@@ -796,12 +806,6 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
 }
 
 // ******** PRIVATE Functions
-
-function getAbout() {
-    // log it
-    // console.log removed for production
-    return aboutInformation;
-}
 
 function getEndpoints() {
     return endpointsInfo;
