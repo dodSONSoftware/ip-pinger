@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.12.
+**Release:** Cobalt Fox — version 1.11.13.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -66,15 +66,20 @@ docker build -t ip-pinger .
 docker run --rm \
   -p 3300:3300 \
   --cap-add=NET_RAW \
-  --cap-add=NET_ADMIN \
   -e CONFIG_PATH=/app/config.yml \
-  -v "$(pwd)/src/config.yml:/app/config.yml:ro" \
+  -v "$(pwd)/src/config.yml:/app/config.yml" \
   ip-pinger
 ```
 
 The `CONFIG_PATH` environment variable is required at startup (the application
 loads its configuration from the path it names), so it must be passed
 explicitly — the same value the volume is mounted at.
+
+The configuration volume is intentionally writable: `POST /write-config`
+persists updated configuration back to the mounted file. If configuration
+mutation is intentionally not needed, the mount can be made read-only by
+appending `:ro` to the mount path, in which case `/write-config` will report
+a write failure instead of updating the file.
 
 ## Configuration
 

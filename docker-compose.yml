@@ -9,7 +9,6 @@ services:
       - "3300:3300"
     cap_add:
       - NET_RAW
-      - NET_ADMIN
     environment:
       - CONFIG_PATH=/app/config.yml
     volumes:
