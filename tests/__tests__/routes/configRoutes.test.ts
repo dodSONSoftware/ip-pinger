@@ -273,6 +273,148 @@ describe("removed alwaysLogErrors option", () => {
     });
 });
 
+describe("multiple route instances (state isolation)", () => {
+    const deviceA1: IDevice = { source: "A-1", ipAddress: "192.168.10.1", deviceType: "sensor" };
+    const deviceA2: IDevice = { source: "A-2", ipAddress: "192.168.10.2", deviceType: "server" };
+    const deviceB1: IDevice = { source: "B-1", ipAddress: "192.168.20.1", deviceType: "kiosk" };
+    const deviceB2: IDevice = { source: "B-2", ipAddress: "192.168.20.2", deviceType: "server" };
+
+    // Distinct startup baselines: A starts at logLevel "info", B at "error"
+    const configA: IConfig = { logLevel: "info", intervalSecs: 30, devices: [deviceA1, deviceA2], lokiEnabled: false };
+    const configB: IConfig = { logLevel: "error", intervalSecs: 30, devices: [deviceB1], lokiEnabled: false };
+
+    const pingDeviceA = jest.fn(async (): Promise<[boolean, number]> => [true, 10]);
+    const pingDeviceB = jest.fn(async (): Promise<[boolean, number]> => [true, 10]);
+    const updateConfigA = jest.fn();
+    const updateConfigB = jest.fn();
+    const pingerA: IPinger = {
+        start: jest.fn(async (): Promise<void> => { }),
+        run: jest.fn(),
+        ping_device: pingDeviceA,
+        updateConfig: updateConfigA,
+        close: jest.fn(),
+    };
+    const pingerB: IPinger = {
+        start: jest.fn(async (): Promise<void> => { }),
+        run: jest.fn(),
+        ping_device: pingDeviceB,
+        updateConfig: updateConfigB,
+        close: jest.fn(),
+    };
+
+    let serverA: http.Server;
+    let serverB: http.Server;
+    let baseUrlA: string;
+    let baseUrlB: string;
+
+    beforeAll(async () => {
+        fs.writeFileSync(CONFIG_FILE, yamlFor(configA));
+
+        const appA = express();
+        appA.use(express.json());
+        createRoutes(appA, configA, yamlFor(configA), pingerA, new NoOpLogger(), new Date());
+
+        // Creating instance B must not rebind the routes registered for A
+        const appB = express();
+        appB.use(express.json());
+        createRoutes(appB, configB, yamlFor(configB), pingerB, new NoOpLogger(), new Date());
+
+        serverA = appA.listen(0);
+        serverB = appB.listen(0);
+        await Promise.all([
+            new Promise<void>((resolve) => serverA.on("listening", () => resolve())),
+            new Promise<void>((resolve) => serverB.on("listening", () => resolve())),
+        ]);
+        baseUrlA = `http://127.0.0.1:${(serverA.address() as { port: number }).port}`;
+        baseUrlB = `http://127.0.0.1:${(serverB.address() as { port: number }).port}`;
+    });
+
+    afterAll(async () => {
+        await Promise.all([
+            new Promise<void>((resolve, reject) => serverA.close((error) => (error ? reject(error) : resolve()))),
+            new Promise<void>((resolve, reject) => serverB.close((error) => (error ? reject(error) : resolve()))),
+        ]);
+    });
+
+    beforeEach(() => {
+        pingDeviceA.mockClear();
+        pingDeviceB.mockClear();
+        updateConfigA.mockClear();
+        updateConfigB.mockClear();
+    });
+
+    async function getJson(base: string, path: string): Promise<{ status: number; body: unknown }> {
+        const res = await fetch(base + path);
+        return { status: res.status, body: await res.json() };
+    }
+
+    async function postConfigJson(base: string, payload: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
+        const res = await fetch(base + "/write-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    }
+
+    function pingSources(body: unknown): string[] {
+        return (body as Array<{ source?: string }>).map((result) => result.source ?? "");
+    }
+
+    it("/ping/:target is answered by the owning pinger instance", async () => {
+        const target = "10.9.9.9";
+
+        const fromA = await getJson(baseUrlA, `/ping/${target}`);
+        expect(fromA.status).toBe(200);
+        expect(pingDeviceA).toHaveBeenCalledWith(target);
+        expect(pingDeviceB).not.toHaveBeenCalled();
+
+        const fromB = await getJson(baseUrlB, `/ping/${target}`);
+        expect(fromB.status).toBe(200);
+        expect(pingDeviceB).toHaveBeenCalledWith(target);
+        // A was pinged exactly once, by its own request
+        expect(pingDeviceA).toHaveBeenCalledTimes(1);
+    });
+
+    it("configuration mutation on one instance leaves the other's ping behavior and pinger untouched", async () => {
+        // B adopts a new device list
+        const writeB = await postConfigJson(baseUrlB, {
+            logLevel: "error",
+            intervalSecs: 42,
+            lokiEnabled: false,
+            devices: [deviceB1, deviceB2],
+        });
+        expect(writeB.status).toBe(200);
+        expect(writeB.body.success).toBe(true);
+        expect(updateConfigB).toHaveBeenCalledTimes(1);
+        expect(updateConfigA).not.toHaveBeenCalled();
+
+        // B's /ping now uses B's updated device list...
+        const pingsB = await getJson(baseUrlB, "/ping");
+        expect(pingSources(pingsB.body)).toEqual(["B-1", "B-2"]);
+        // ...and A still pings its own device list, untouched by B's write
+        const pingsA = await getJson(baseUrlA, "/ping");
+        expect(pingSources(pingsA.body)).toEqual(["A-1", "A-2"]);
+    });
+
+    it("restart-required reporting stays based on each instance's startup baseline", async () => {
+        // logLevel "info" matches A's startup baseline...
+        const resA = await postConfigJson(baseUrlA, { ...configA, logLevel: "info" });
+        expect(resA.status).toBe(200);
+        expect(resA.body.restartRequired).toBe(false);
+
+        // ...but differs from B's "error" startup baseline
+        const resB = await postConfigJson(baseUrlB, { ...configB, logLevel: "info" });
+        expect(resB.status).toBe(200);
+        expect(resB.body.restartRequired).toBe(true);
+
+        // After B's write, A's baseline is still A's own: the same payload
+        // still reports no restart for A
+        const resA2 = await postConfigJson(baseUrlA, { ...configA, logLevel: "info" });
+        expect(resA2.body.restartRequired).toBe(false);
+    });
+});
+
 describe("removed apiPort option", () => {
     it("ignores apiPort in write-config payloads and does not report a restart", async () => {
         const { status, body } = await postConfig({

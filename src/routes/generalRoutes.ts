@@ -79,12 +79,6 @@ type EndpointsInfo = {
     endpoints: EndpointDetail[];
 };
 
-// **** PRIVATE Variables for runtime state
-var start_date: Date;
-// Startup-owned settings that remain active until the process restarts.
-// Captured once at boot so reload comparisons are never skewed by later config writes.
-var startup_settings: RestartRequiredSettings;
-
 export const aboutInformation: AboutInformation = {
     about: {
         name: "IP Pinger Services",
@@ -230,12 +224,8 @@ export const endpointsInfo: EndpointsInfo = {
     ]
 };
 
-// **** PRIVATE Variables
+// **** PRIVATE Constants
 
-var configuration: string;
-var configurationObj: IConfig;
-var ip_pinger: IPinger;
-var log_writer: ILogger;
 const originator: string = "generalRoutes";
 
 // Define types for ping results
@@ -252,12 +242,17 @@ interface PingResult {
 
 export function createRoutes(app: express.Application, config: IConfig, config_str: string, pinger: IPinger, logger: ILogger, startDate: Date) {
     // **** initialize
-    configuration = config_str;
-    configurationObj = config;
-    ip_pinger = pinger;
-    log_writer = logger;
-    start_date = startDate;
-    startup_settings = getRestartRequiredSettings(config);
+    // Route state is owned by this invocation: each createRoutes() call —
+    // and therefore each Pinger instance — carries its own configuration,
+    // pinger, logger, and startup baseline, so registering routes for a
+    // second instance can never rebind routes registered for a first one.
+    let configuration = config_str;
+    let configurationObj = config;
+    const ip_pinger = pinger;
+    const log_writer = logger;
+    // Startup-owned settings that remain active until the process restarts.
+    // Captured once at boot so reload comparisons are never skewed by later config writes.
+    const startup_settings = getRestartRequiredSettings(config);
     aboutInformation.system.bootdate = startDate.toISOString();
 
     /**
@@ -670,6 +665,55 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     app.route("/endpoints").get((req: express.Request, res: express.Response) => {
         res.type(Json).status(OK).json(getEndpoints());
     });
+
+    // Ping helpers live in this invocation's closure so every request is
+    // answered by the pinger instance these routes were registered with.
+    async function getPing(ipAddress: string): Promise<PingResult> {
+        // ping device
+        const [isAlive, roundTripMs] = await ip_pinger.ping_device(ipAddress);
+
+        // return results
+        return {
+            ipAddress,
+            isAlive,
+            roundTripMs
+        };
+    }
+
+    async function getPings(devices: IDevice[]): Promise<PingResult[]> {
+        // iterate thru each device in devices
+        const results: PromiseSettledResult<PingResult>[] = await Promise.allSettled(
+            devices.map(async (device) => {
+                try {
+                    // init
+                    const source = String(device.source);
+                    const ipAddress = String(device.ipAddress);
+                    const deviceType = String(device.deviceType);
+
+                    // ping device, add the source and return the results
+                    let dude = await getPing(ipAddress);
+                    dude.source = source;
+                    dude.deviceType = deviceType;
+                    return dude;
+                } catch (err) {
+                    // Return error info with device context preserved
+                    return {
+                        source: String(device.source),
+                        ipAddress: String(device.ipAddress),
+                        deviceType: String(device.deviceType),
+                        isAlive: false,
+                        roundTripMs: 0,
+                        error: ensureError(err).message
+                    };
+                }
+            })
+        );
+
+        // Extract the value from each fulfilled result (or reason if rejected)
+        return results.map(result =>
+            result.status === 'fulfilled' ? result.value : result.reason
+        );
+    }
 }
 
 // ******** PRIVATE Functions
@@ -682,51 +726,4 @@ function getAbout() {
 
 function getEndpoints() {
     return endpointsInfo;
-}
-
-async function getPing(ipAddress: string): Promise<PingResult> {
-    // ping device
-    const [isAlive, roundTripMs] = await ip_pinger.ping_device(ipAddress);
-
-    // return results
-    return {
-        ipAddress,
-        isAlive,
-        roundTripMs
-    };
-}
-
-async function getPings(devices: IDevice[]): Promise<PingResult[]> {
-    // iterate thru each device in devices
-    const results: PromiseSettledResult<PingResult>[] = await Promise.allSettled(
-        devices.map(async (device) => {
-            try {
-                // init
-                const source = String(device.source);
-                const ipAddress = String(device.ipAddress);
-                const deviceType = String(device.deviceType);
-
-                // ping device, add the source and return the results
-                let dude = await getPing(ipAddress);
-                dude.source = source;
-                dude.deviceType = deviceType;
-                return dude;
-            } catch (err) {
-                // Return error info with device context preserved
-                return {
-                    source: String(device.source),
-                    ipAddress: String(device.ipAddress),
-                    deviceType: String(device.deviceType),
-                    isAlive: false,
-                    roundTripMs: 0,
-                    error: ensureError(err).message
-                };
-            }
-        })
-    );
-
-    // Extract the value from each fulfilled result (or reason if rejected)
-    return results.map(result =>
-        result.status === 'fulfilled' ? result.value : result.reason
-    );
 }
