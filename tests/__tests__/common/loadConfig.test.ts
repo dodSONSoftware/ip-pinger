@@ -255,6 +255,77 @@ ${lokiLines}`;
     });
 });
 
+describe("Duplicate device validation", () => {
+    const yamlForDevices = (deviceLines: string) => `
+logLevel: debug
+intervalSecs: 30
+devices:
+${deviceLines}`;
+
+    it("rejects an exact duplicate device identity (same ipAddress, source, and deviceType)", () => {
+        const result = validateConfig(yamlForDevices(`
+  - source: "Server A"
+    ipAddress: "10.10.10.10"
+    deviceType: server
+  - source: "Server A"
+    ipAddress: "10.10.10.10"
+    deviceType: server`));
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            const errors = result.errors.join(" ");
+            expect(errors).toContain("Duplicate device definition");
+            expect(errors).toContain(`source="Server A"`);
+            expect(errors).toContain(`ipAddress="10.10.10.10"`);
+            expect(errors).toContain(`deviceType="server"`);
+            // The issue points at the duplicated entry
+            expect(errors).toContain("devices.1");
+        }
+    });
+
+    it("accepts the same IP address with different sources", () => {
+        const result = validateConfig(yamlForDevices(`
+  - source: "Interface A"
+    ipAddress: "10.0.0.1"
+    deviceType: server
+  - source: "Interface B"
+    ipAddress: "10.0.0.1"
+    deviceType: server`));
+
+        expect(result.ok).toBe(true);
+    });
+
+    it("accepts the same IP address and source with different device types", () => {
+        const result = validateConfig(yamlForDevices(`
+  - source: "Device A"
+    ipAddress: "10.0.0.1"
+    deviceType: server
+  - source: "Device A"
+    ipAddress: "10.0.0.1"
+    deviceType: kiosk`));
+
+        expect(result.ok).toBe(true);
+    });
+
+    it("flags every repeated copy of a device, not just the second", () => {
+        const result = validateConfig(yamlForDevices(`
+  - source: "Device A"
+    ipAddress: "10.0.0.1"
+    deviceType: server
+  - source: "Device A"
+    ipAddress: "10.0.0.1"
+    deviceType: server
+  - source: "Device A"
+    ipAddress: "10.0.0.1"
+    deviceType: server`));
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.errors.filter((error) => error.includes("Duplicate device definition"))).toHaveLength(2);
+        }
+    });
+});
+
 describe("IPv4 validation", () => {
     const yamlForIp = (ip: string) => `
 logLevel: debug

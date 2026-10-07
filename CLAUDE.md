@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.14 (release codename: Cobalt Fox)
+**Version:** 1.11.15 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -113,6 +113,8 @@ devices:
     ipAddress: "192.168.1.100"
     deviceType: sensor|server|kiosk
 ```
+
+Each device identity (`ipAddress` + `source` + `deviceType`) must be unique: configurations containing an exact duplicate device definition are rejected at validation time. Sharing an IP address across different sources or device types is valid — those produce distinct Prometheus series.
 
 ### Hot-Reload Configuration
 

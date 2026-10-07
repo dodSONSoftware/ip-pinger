@@ -55,6 +55,27 @@ const ConfigSchema = z
                 message: "lokiUrl is required when lokiEnabled is true",
             });
         }
+
+        // Reject exact duplicate device identities (ipAddress + source +
+        // deviceType). Two identical entries would publish the same
+        // Prometheus series and be pinged twice, double-counting the
+        // aggregate up/down gauges, latency histogram, and error totals
+        // for one logical device. Sharing an IP address across different
+        // sources or device types is still valid — those are distinct
+        // series.
+        const seen = new Set<string>();
+        config.devices.forEach((device, index) => {
+            const key = JSON.stringify([device.ipAddress, device.source, device.deviceType]);
+            if (seen.has(key)) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ["devices", index],
+                    message: `Duplicate device definition: source="${device.source}", ipAddress="${device.ipAddress}", deviceType="${device.deviceType}"`,
+                });
+                return;
+            }
+            seen.add(key);
+        });
     });
 
 /* ---------- Validation function ---------- */

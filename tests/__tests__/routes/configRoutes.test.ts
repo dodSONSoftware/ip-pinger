@@ -220,6 +220,26 @@ describe("/write-config (validation)", () => {
         expect(fs.readFileSync(CONFIG_FILE, "utf-8")).toBe(before);
     });
 
+    it("rejects exact duplicate device definitions before persisting them", async () => {
+        const before = fs.readFileSync(CONFIG_FILE, "utf-8");
+
+        const { status, body } = await postConfig({
+            logLevel: "info",
+            intervalSecs: 30,
+            lokiEnabled: false,
+            devices: [
+                { source: "Server A", ipAddress: "10.10.10.10", deviceType: "server" },
+                { source: "Server A", ipAddress: "10.10.10.10", deviceType: "server" },
+            ],
+        });
+
+        expect(status).toBe(400);
+        expect(body.success).toBe(false);
+        expect(JSON.stringify(body.errors ?? "")).toContain("Duplicate device definition");
+        expect(updateConfig).not.toHaveBeenCalled();
+        expect(fs.readFileSync(CONFIG_FILE, "utf-8")).toBe(before);
+    });
+
     it("rejects invalid IPv4 addresses before persisting them", async () => {
         const before = fs.readFileSync(CONFIG_FILE, "utf-8");
 
