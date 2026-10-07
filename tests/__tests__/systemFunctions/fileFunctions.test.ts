@@ -56,6 +56,87 @@ describe("write_file", () => {
     });
 });
 
+describe("write_file (atomic replacement)", () => {
+    const testDir = "/tmp/ip-pinger-tests";
+
+    // The raw fs module object. systemFunctions imports the default export
+    // of "fs", which in CommonJS is this same object, so spying on it
+    // intercepts write_file's own fs calls.
+    const realFs = jest.requireActual("fs") as typeof import("fs");
+
+    beforeAll(() => {
+        if (!fs.existsSync(testDir)) {
+            fs.mkdirSync(testDir, { recursive: true });
+        }
+    });
+
+    afterAll(() => {
+        try {
+            fs.rmSync(testDir, { recursive: true, force: true });
+        } catch {
+            // Ignore cleanup errors
+        }
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
+
+    it("replaces the target file with the new content and leaves no temporary file behind", () => {
+        const filePath = path.join(testDir, "atomic-target.yml");
+        fs.writeFileSync(filePath, "OLD");
+
+        const result = write_file(filePath, "NEW");
+
+        expect(result.success).toBe(true);
+        expect(fs.readFileSync(filePath, "utf8")).toBe("NEW");
+        expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);
+    });
+
+    it("keeps the existing content intact and reports the original failure when the temporary write fails", () => {
+        const filePath = path.join(testDir, "atomic-tmp-fail.yml");
+        fs.writeFileSync(filePath, "OLD");
+
+        // Fail only the temporary write; the live target must never be opened
+        const originalWriteFileSync = realFs.writeFileSync;
+        jest.spyOn(realFs, "writeFileSync").mockImplementation(((
+            file: fs.PathOrFileDescriptor,
+            data: string
+        ): void => {
+            if (String(file).endsWith(".tmp")) {
+                throw new Error("simulated temporary write failure");
+            }
+            originalWriteFileSync(file, data);
+        }) as typeof realFs.writeFileSync);
+
+        const result = write_file(filePath, "NEW");
+
+        expect(result.success).toBe(false);
+        // The original failure is reported, not masked by cleanup
+        expect(result.error).toContain("simulated temporary write failure");
+        // The live configuration is untouched and no temporary file remains
+        expect(fs.readFileSync(filePath, "utf8")).toBe("OLD");
+        expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);
+    });
+
+    it("reports failure, keeps the existing content, and removes the temporary file when the rename fails", () => {
+        const filePath = path.join(testDir, "atomic-rename-fail.yml");
+        fs.writeFileSync(filePath, "OLD");
+
+        jest.spyOn(realFs, "renameSync").mockImplementation(() => {
+            throw new Error("simulated rename failure");
+        });
+
+        const result = write_file(filePath, "NEW");
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain("simulated rename failure");
+        expect(fs.readFileSync(filePath, "utf8")).toBe("OLD");
+        // The temporary file is cleaned up after the failed rename
+        expect(fs.existsSync(`${filePath}.tmp`)).toBe(false);
+    });
+});
+
 describe("read_file", () => {
     const testDir = "/tmp/ip-pinger-tests";
 

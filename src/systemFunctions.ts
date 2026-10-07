@@ -28,11 +28,31 @@ export function ensureError(value: unknown): Error {
 
 // **** file functions
 
+/**
+ * Writes content to a file with all-or-nothing persistence semantics.
+ *
+ * The complete new content is first written to a temporary file in the
+ * same directory, then atomically renamed over the target. The visible
+ * target therefore always contains either the complete previous content
+ * or the complete new content — a failed write can never truncate the
+ * live file mid-write.
+ */
 export function write_file(filename: string, content: string, logger?: ILogger): { success: boolean; error?: string } {
+    // Same directory as the target so the rename stays on one filesystem
+    const temporaryFilename = `${filename}.tmp`;
     try {
-        fs.writeFileSync(filename, content);
+        fs.writeFileSync(temporaryFilename, content);
+        fs.renameSync(temporaryFilename, filename);
         return { success: true };
     } catch (error) {
+        // Best-effort cleanup of the temporary file. A cleanup failure must
+        // not replace or hide the original write failure.
+        try {
+            if (fs.existsSync(temporaryFilename)) {
+                fs.unlinkSync(temporaryFilename);
+            }
+        } catch { }
+
         const err = ensureError(error);
         const errorMsg = `Failed to write file "${filename}": ${err.message}`;
         logger?.write_error("systemFunctions.write_file", errorMsg);
