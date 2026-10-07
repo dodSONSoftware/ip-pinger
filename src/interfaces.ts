@@ -22,6 +22,18 @@ export interface ILogger {
     write_debug(originator: string, message: string, start_date?: Date): void;
 }
 
+// Severity ordering for minimum-level filtering. The LogLevel enum's numeric
+// values are not ordered by severity (None=0, Info=1, Warn=2, Error=3,
+// Debug=4), so comparisons must go through this explicit priority: a message
+// is emitted when its priority is at most the configured level's priority.
+const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+    [LogLevel.None]: -1,
+    [LogLevel.Error]: 0,
+    [LogLevel.Warn]: 1,
+    [LogLevel.Info]: 2,
+    [LogLevel.Debug]: 3,
+};
+
 /**
  * A minimal console-based logger for bootstrap scenarios before full config loading.
  */
@@ -46,26 +58,35 @@ export class ConsoleLogger implements ILogger {
         }
     }
 
+    /**
+     * Central minimum-level decision: a message of the given severity is
+     * emitted when its priority does not exceed the configured level's
+     * priority. None disables everything; Debug enables every level.
+     */
+    private shouldLog(level: LogLevel): boolean {
+        return LOG_LEVEL_PRIORITY[level] <= LOG_LEVEL_PRIORITY[this.logLevel];
+    }
+
     write_info(originator: string, message: string, start_date?: Date): void {
-        if (this.logLevel <= LogLevel.Info) {
+        if (this.shouldLog(LogLevel.Info)) {
             console.log(`[INFO][${originator}] ${message}`);
         }
     }
 
     write_warn(originator: string, message: string, start_date?: Date): void {
-        if (this.logLevel <= LogLevel.Warn) {
+        if (this.shouldLog(LogLevel.Warn)) {
             console.warn(`[WARN][${originator}] ${message}`);
         }
     }
 
     write_error(originator: string, message: string, start_date?: Date): void {
-        if (this.logLevel <= LogLevel.Error) {
+        if (this.shouldLog(LogLevel.Error)) {
             console.error(`[ERROR][${originator}] ${message}`);
         }
     }
 
     write_debug(originator: string, message: string, start_date?: Date): void {
-        if (this.logLevel <= LogLevel.Debug) {
+        if (this.shouldLog(LogLevel.Debug)) {
             console.debug(`[DEBUG][${originator}] ${message}`);
         }
     }
