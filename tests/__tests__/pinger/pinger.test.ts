@@ -4,7 +4,7 @@
  */
 
 import http from "http";
-import { Pinger } from "../../../src/Pinger";
+import { Pinger, PING_ERROR_TYPES } from "../../../src/Pinger";
 import { API_PORT, NoOpLogger } from "../../../src/common";
 import { register } from "prom-client";
 import type { Counter, Gauge, Histogram } from "prom-client";
@@ -310,6 +310,18 @@ function latestSession(): { pingHost: jest.Mock } {
     return netPing.createSession.mock.results.at(-1)!.value;
 }
 
+// The mocked net-ping module, including the typed error classes that mirror
+// the real library's exports
+type MockNetPing = {
+    createSession: { mock: { results: Array<{ value: { pingHost: jest.Mock } }> } };
+    RequestTimedOutError: new () => Error;
+    DestinationUnreachableError: new (source: string) => Error;
+    TimeExceededError: new (source: string) => Error;
+};
+function mockNetPing(): MockNetPing {
+    return jest.requireMock("net-ping") as MockNetPing;
+}
+
 describe("Pinger.run() (latency metrics only record successful pings)", () => {
     it("a successful ping updates the availability gauge, roundtrip gauge and records one histogram observation", async () => {
         // short interval so the run() loop exits promptly after close()
@@ -343,8 +355,9 @@ describe("Pinger.run() (latency metrics only record successful pings)", () => {
         // short interval so the run() loop exits promptly after close()
         const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 5 }));
         const session = latestSession();
+        const { RequestTimedOutError } = mockNetPing();
         session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
-            callback(new Error("Request timed out"), host, new Date(), new Date());
+            callback(new RequestTimedOutError(), host, new Date(), new Date());
         });
 
         const runPromise = pinger.run();
@@ -372,6 +385,7 @@ describe("Pinger.run() (latency metrics only record successful pings)", () => {
         // and the run() loop exits promptly after close()
         const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 2 }));
         const session = latestSession();
+        const { RequestTimedOutError } = mockNetPing();
         let attempts = 0;
         session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
             attempts++;
@@ -379,7 +393,7 @@ describe("Pinger.run() (latency metrics only record successful pings)", () => {
                 const sent = new Date();
                 callback(null, host, sent, new Date(sent.getTime() + 20)); // first cycle: success
             } else {
-                callback(new Error("Request timed out"), host, new Date(), new Date()); // later cycles: failure
+                callback(new RequestTimedOutError(), host, new Date(), new Date()); // later cycles: failure
             }
         });
 
@@ -399,4 +413,58 @@ describe("Pinger.run() (latency metrics only record successful pings)", () => {
         await pinger.close();
         await runPromise;
     }, 20000);
+});
+
+describe("Pinger error classification (getErrorType)", () => {
+    function makeClassifier(): (error: Error) => string {
+        // private method; construct without start() — no HTTP server involved
+        const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date(), 0);
+        pingers.push(pinger);
+        return (pinger as unknown as { getErrorType: (error: Error) => string }).getErrorType;
+    }
+
+    it("classifies every declared error type from the typed net-ping error classes", () => {
+        const { RequestTimedOutError, DestinationUnreachableError, TimeExceededError } = mockNetPing();
+        const classify = makeClassifier();
+
+        expect(classify(new RequestTimedOutError())).toBe("timeout");
+        expect(classify(new DestinationUnreachableError("10.0.0.1"))).toBe("host_unreachable");
+        expect(classify(new TimeExceededError("10.0.0.1"))).toBe("ttl_exceeded");
+        // plain Errors from the library (socket closed, unknown response type, ...)
+        expect(classify(new Error("Socket closed"))).toBe("other");
+        expect(classify(new Error("Unknown response type '99'"))).toBe("other");
+    });
+
+    it("never classifies by message text: an unrecognized message with a familiar word falls to other", () => {
+        const classify = makeClassifier();
+
+        // these messages contain the old classifier's trigger words but are
+        // not the typed net-ping errors, so they must not be classified as
+        // timeout / host_unreachable / ttl_exceeded
+        expect(classify(new Error("timeout waiting for config"))).toBe("other");
+        expect(classify(new Error("network interface changed"))).toBe("other");
+        expect(classify(new Error("ttl exceeded in proxy chain"))).toBe("other");
+    });
+
+    it("declares only error types the runtime can actually classify", () => {
+        // the taxonomy is bounded and contains no category without a real
+        // producer: net-ping reports every destination-unreachable condition
+        // as a single DestinationUnreachableError (the ICMP type/code is not
+        // surfaced), so there is no distinguishable network_unreachable
+        expect(PING_ERROR_TYPES).toEqual(["timeout", "host_unreachable", "ttl_exceeded", "other"]);
+
+        // and the classifier only ever returns one of the declared values
+        const { RequestTimedOutError, DestinationUnreachableError, TimeExceededError } = mockNetPing();
+        const classify = makeClassifier();
+        const samples: Error[] = [
+            new RequestTimedOutError(),
+            new DestinationUnreachableError("10.0.0.1"),
+            new TimeExceededError("10.0.0.1"),
+            new Error("Socket forcibly closed"),
+            new Error("Too many requests outstanding"),
+        ];
+        for (const sample of samples) {
+            expect(PING_ERROR_TYPES).toContain(classify(sample));
+        }
+    });
 });

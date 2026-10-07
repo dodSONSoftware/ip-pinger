@@ -29,10 +29,12 @@ interface PingResultInternal {
 
 /**
  * The finite set of errorType label values the error counter can carry.
- * Used when removing a device's series so every label combination is
- * covered without clearing the whole metric.
+ * Every value corresponds to a condition the net-ping session can actually
+ * produce (see getErrorType) — the set deliberately contains no category
+ * the library cannot distinguish. Also used when removing a device's series
+ * so every label combination is covered without clearing the whole metric.
  */
-export const PING_ERROR_TYPES = ["timeout", "host_unreachable", "network_unreachable", "ttl_exceeded", "other"] as const;
+export const PING_ERROR_TYPES = ["timeout", "host_unreachable", "ttl_exceeded", "other"] as const;
 export type PingErrorType = (typeof PING_ERROR_TYPES)[number];
 
 export class Pinger implements dli.IPinger {
@@ -643,18 +645,24 @@ export class Pinger implements dli.IPinger {
 
     /**
      * Classifies the type of ICMP/error encountered during ping.
+     *
+     * net-ping exposes typed error classes for the conditions it can
+     * distinguish, so classification uses them (instanceof) instead of
+     * parsing message text. The library reports every destination-
+     * unreachable condition as a single DestinationUnreachableError — the
+     * ICMP type/code is not surfaced — so host-unreachable and
+     * network-unreachable cannot be told apart and are both reported as
+     * host_unreachable. Anything the library hands back as a plain Error
+     * (socket closed, unknown response type, ...) falls into "other".
      * The result is always one of the finite PING_ERROR_TYPES label values.
      */
     private getErrorType(error: Error): PingErrorType {
         if (error instanceof Error) {
-            const msg = error.message.toLowerCase();
-            if (msg.includes("timeout") || msg.includes("timed out")) {
+            if (error instanceof netPing.RequestTimedOutError) {
                 return "timeout";
-            } else if (msg.includes("unreachable") || msg.includes("no route")) {
+            } else if (error instanceof netPing.DestinationUnreachableError) {
                 return "host_unreachable";
-            } else if (msg.includes("network")) {
-                return "network_unreachable";
-            } else if (msg.includes("ttl") || msg.includes("time exceeded")) {
+            } else if (error instanceof netPing.TimeExceededError) {
                 return "ttl_exceeded";
             }
         }

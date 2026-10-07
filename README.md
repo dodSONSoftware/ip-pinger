@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.9.
+**Release:** Cobalt Fox — version 1.11.10.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -171,7 +171,7 @@ Settings split into two groups:
 |--------|------|--------|-------------|
 | `pinged_errors_total` | Counter | `ipAddress`, `deviceName`, `deviceType`, `errorType` | Total errors by type |
 
-Error types: `timeout`, `host_unreachable`, `network_unreachable`, `ttl_exceeded`, `other`
+Error types: `timeout`, `host_unreachable`, `ttl_exceeded`, `other`
 
 ## Development
 
