@@ -30,9 +30,13 @@ export const API_PORT = 3300;
 
 /* ---------- Schema ---------- */
 
+// Shared IPv4 boundary validation: configured device addresses and the
+// /ping/:target route parameter accept exactly the same input.
+export const IPV4_SCHEMA = z.ipv4("Invalid IP address");
+
 const DeviceSchema = z.object({
     source: z.string(),
-    ipAddress: z.ipv4("Invalid IP address"),
+    ipAddress: IPV4_SCHEMA,
     deviceType: z.enum(["sensor", "server", "kiosk"]),
 });
 

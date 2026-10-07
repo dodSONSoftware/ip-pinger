@@ -4,7 +4,7 @@
  */
 
 import type express from "express";
-import { validateConfig, getConfigPath, loadConfig, getRestartRequiredSettings, requiresRestart } from "../common";
+import { IPV4_SCHEMA, validateConfig, getConfigPath, loadConfig, getRestartRequiredSettings, requiresRestart } from "../common";
 import type { RestartRequiredSettings } from "../common";
 import { ensureError, write_file } from "../systemFunctions";
 import type { ILogger, IPinger, IConfig, IDevice } from "../interfaces";
@@ -354,7 +354,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *       - name: target
      *         in: path
      *         required: true
-     *         description: The IP address to ping
+     *         description: The IPv4 address to ping
      *         schema:
      *           type: string
      *     responses:
@@ -374,10 +374,26 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                 roundtripMs:
      *                   type: number
      *                   example: 45
+     *       400:
+     *         description: The target is not a valid IPv4 address
      */
     app.route("/ping/:target").get(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
         try {
-            res.type("application/json").status(OK).json(await getPing(String(req.params.target)));
+            const target = String(req.params.target);
+
+            // The documented contract is an IPv4 address — the same
+            // boundary validation applied to configured device addresses —
+            // so reject anything else before it can reach net-ping.
+            const parsed = IPV4_SCHEMA.safeParse(target);
+            if (!parsed.success) {
+                res.status(_400).json({
+                    success: false,
+                    message: `ERROR: '${target}' is not a valid IPv4 address.`
+                });
+                return;
+            }
+
+            res.type("application/json").status(OK).json(await getPing(parsed.data));
         } catch (error) {
             // Express 4 does not forward rejected async handlers to its
             // error path; hand the failure off explicitly so the error

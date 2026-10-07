@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.21 (release codename: Cobalt Fox)
+**Version:** 1.11.22 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -160,7 +160,7 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 |--------|-------|-------------|
 | GET | `/about` | Service information and available commands |
 | GET | `/ping` | Pings all configured devices |
-| GET | `/ping/:target` | Pings specified IP address |
+| GET | `/ping/:target` | Pings specified IPv4 address (400 if the target is not a valid IPv4 address) |
 | GET | `/read-config` | Reads current configuration |
 | POST | `/write-config` | Updates and reloads configuration |
 | GET | `/reload-config` | Reloads configuration from disk |

@@ -113,6 +113,23 @@ describe("/ping/:target (async error handling)", () => {
     });
 });
 
+describe("/ping/:target (target validation)", () => {
+    it.each([
+        "not-an-ip",
+        "256.1.1.1",
+        "10.0.0.1.1",
+        "10.0.0.257",
+        "10:0:0:1",
+    ])("rejects %s with a 400 without pinging", async (target) => {
+        const { status, body } = await get(`/ping/${target}`);
+
+        expect(status).toBe(400);
+        expect(body.success).toBe(false);
+        expect(String(body.message)).toContain("not a valid IPv4 address");
+        expect(pingDevice).not.toHaveBeenCalled();
+    });
+});
+
 describe("/ping (async error handling)", () => {
     it("reports per-device errors as JSON instead of rejecting the handler", async () => {
         pingDevice.mockRejectedValue(new Error("simulated ping failure"));
