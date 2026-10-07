@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.22 (release codename: Cobalt Fox)
+**Version:** 1.11.23 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -68,14 +68,15 @@ npm run lint    # Run ESLint
 
 ### Pinger Loop (`Pinger.ts`)
 ```
-while (true):
-    wait 2 seconds
+while (!closed):
+    wait 2 seconds (woken early by a config change, close(), or session failure)
     for each device in config.devices:
         ping_idevice(device) → Promise<[ip, name, alive, roundtrip]>
     process results:
         set prometheus_Pinger_Up_Gauge[ip, name] = alive ? 1 : 0
         set prometheus_Pinger_Roundtrip_Gauge[ip, name] = roundtrip_ms
-    wait for remainder of interval_secs cycle
+    apply any config update pending since the cycle started
+    wait for remainder of interval_secs cycle (woken early by a config change or close())
 ```
 
 ### Prometheus Metrics
@@ -133,7 +134,7 @@ Settings split into two groups:
 
 Note: Configuration is stored in YAML format (`src/config.yml`) instead of JSON.
 
-The `Pinger.updateConfig()` method allows runtime configuration updates via the route handlers.
+The `Pinger.updateConfig()` method allows runtime configuration updates via the route handlers. If a ping cycle is in flight when an update is accepted, it is held pending, applied at the cycle boundary — immediately after that cycle's results are processed and before the interval wait — and the wait between cycles is woken so the next cycle runs under the new configuration (including any new `intervalSecs`) without sleeping out the old interval.
 
 ## Key Patterns
 
@@ -143,7 +144,7 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 - **Net-ping library:** Uses `createSession()` with IPv4, 16-byte packets, 1 retry, 2s timeout, 128 TTL
 - **Promise-based pinging:** `pingHost()` wrapped in Promise for async/await compatibility
 - **Prometheus gauges:** Separate gauges for up status and round-trip time
-- **Graceful shutdown:** SIGINT/SIGTERM handlers call `pinger.close()`, which closes the HTTP API server (including idle keep-alive connections) and the net-ping session before exiting. Pings still in flight when the session closes are treated as cancellations: they settle their promises but update no device state, error counters, timestamps, or latency metrics
+- **Graceful shutdown:** SIGINT/SIGTERM handlers call `pinger.close()`, which closes the HTTP API server (including idle keep-alive connections) and the net-ping session before exiting. `close()` also wakes the run loop out of its wait between cycles (and skips the settle wait entirely), so shutdown does not sleep out the ping interval. Pings still in flight when the session closes are treated as cancellations: they settle their promises but update no device state, error counters, timestamps, or latency metrics
 - **Zod validation:** Schema-based config validation with readable error messages
 - **Version management:** `src/version.ts` is the version source of truth (`APP_VERSION`, reported by `/about` and the boot log); the `/git-commit` Claude Code command (`.claude/commands/git-commit.md`) bumps it in lockstep with `package.json`, derives the release codename, syncs README.md/CLAUDE.md, and commits
 

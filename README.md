@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.22.
+**Release:** Cobalt Fox — version 1.11.23.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -199,6 +199,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.23 | Apply hot-reloaded configuration at the cycle boundary and wake the run loop on a config change or `close()`: a new `intervalSecs` takes effect without waiting out the old interval, and shutdown stops the loop immediately instead of sleeping out the cycle |
 | v1.11.22 | Validate the `/ping/:target` target as an IPv4 address before pinging: invalid targets are rejected with a 400 using the same shared schema as configured device addresses, instead of reaching net-ping |
 | v1.11.21 | Stop advertising a deployment-specific server address in the OpenAPI document: the hard-coded `servers` URL is removed so Swagger UI targets the origin serving `/swagger` |
 | v1.11.20 | Make the `/about` boot date instance-local: each route registration carries its own boot date instead of mutating a shared module-level value |

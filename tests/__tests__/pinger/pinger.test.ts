@@ -183,6 +183,69 @@ describe("Pinger.close() (in-flight ping cancellation at shutdown)", () => {
     }, 15000);
 });
 
+describe("Pinger lifecycle (run-loop wake semantics)", () => {
+    it("a config update accepted mid-cycle applies at the cycle boundary, before the interval wait", async () => {
+        // 60-second interval: if the pending update were only applied
+        // after the old interval expired, the short wait timeout below
+        // could never be met
+        const pinger = await createPinger(makeConfig([deviceA, deviceB], { intervalSecs: 60 }));
+        const metrics = pingerMetrics(pinger);
+        // Prior history: B's up series must be gone after removal
+        metrics.prometheus_Pinger_Up_Gauge.set(deviceBLabels, 1);
+
+        // Hold B's ping in flight so the update arrives mid-cycle
+        const session = latestSession();
+        let staleB: ((error: Error | null, target: string, sent: Date, received: Date) => void) | undefined;
+        session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            if (host === deviceB.ipAddress) {
+                staleB = callback;
+                return;
+            }
+            const sent = new Date();
+            callback(null, host, sent, new Date(sent.getTime() + 5));
+        });
+
+        const runPromise = pinger.run();
+        await waitFor(() => staleB !== undefined);
+
+        pinger.updateConfig(makeConfig([deviceA], { intervalSecs: 1 }), "remove device B, shorten interval");
+
+        // let the stale B ping finish: it is a completed observation under
+        // the cycle's original snapshot, but the boundary application must
+        // remove B's series before the wait begins
+        staleB!(null, deviceB.ipAddress, new Date(), new Date());
+
+        // verify promptly — no 60-second wait may be required
+        await waitFor(async () => {
+            const output = await register.metrics();
+            const live = (pinger as unknown as { configuration: IConfig }).configuration;
+            return !output.includes(deviceB.ipAddress)
+                && live.devices.length === 1
+                && live.intervalSecs === 1;
+        }, 1000);
+
+        await pinger.close();
+        await runPromise;
+    }, 15000);
+
+    it("close() wakes the run loop from the inter-cycle wait instead of sleeping out the interval", async () => {
+        const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 60 }));
+        const runPromise = pinger.run();
+
+        // wait until the first cycle has completed and the loop is in the
+        // 60-second wait
+        await waitFor(async () => {
+            const output = await register.metrics();
+            return output.match(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m")) !== null;
+        });
+
+        const started = Date.now();
+        await pinger.close();
+        await runPromise;
+        expect(Date.now() - started).toBeLessThan(500);
+    }, 15000);
+});
+
 describe("Pinger.run() (fatal net-ping session error)", () => {
     // The mocked session exposes on() as a jest.fn(), so the listeners the
     // pinger registered can be retrieved and invoked

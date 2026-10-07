@@ -5,7 +5,7 @@
 
 import type * as dli from "./interfaces";
 import { API_PORT } from "./common";
-import { ensureError, sleep, sleep_from_start } from "./systemFunctions";
+import { ensureError } from "./systemFunctions";
 import { Gauge, Histogram, Counter } from "prom-client";
 import type { Server } from "http";
 import type { NextFunction } from "express";
@@ -42,6 +42,11 @@ type PingResultInternal =
         status: "cancelled";
     };
 
+// Why a wait between cycles ended (waitForNextCycle). A fatal net-ping
+// session failure is the fourth, exclusive outcome: the wait rejects with
+// the fatal error instead of resolving one of these.
+type CycleWaitOutcome = "interval" | "config_changed" | "shutdown";
+
 /**
  * The finite set of errorType label values the error counter can carry.
  * Every value corresponds to a condition the net-ping session can actually
@@ -73,7 +78,8 @@ export class Pinger implements dli.IPinger {
     // publish metrics for a device that is being removed.
     private pending_update?: { config: dli.IConfig; config_str: string };
     private ping_cycle_in_flight = false;
-    // Set by close() so the run() loop can exit at the next check
+    // Set by close() so the run() loop can exit at the next check, and so
+    // the wait between cycles can end without sleeping out the interval
     private closed = false;
     // The first unexpected net-ping session error, recorded by the session's
     // "error" handler before it closes the session. Once set, the pinger is
@@ -90,6 +96,13 @@ export class Pinger implements dli.IPinger {
     private readonly fatal_session_error_promise: Promise<Error> = new Promise<Error>((resolve) => {
         this.fatal_session_error_resolve = resolve;
     });
+    // Deferred wake for the wait between cycles, created on demand by
+    // waitForNextCycle() and resolved by signalCycleWake(). A signal that
+    // arrives while no wait is pending is dropped: the next wait re-checks
+    // the closed state on entry and computes its deadline from the live
+    // configuration, so a dropped signal can never leave the loop stale.
+    private cycle_wake_promise?: Promise<void>;
+    private cycle_wake_resolve?: () => void;
     // ----
     private prometheus_Pinger_Up_Gauge!: Gauge;
     private prometheus_Pinger_Roundtrip_Gauge!: Gauge;
@@ -335,10 +348,13 @@ export class Pinger implements dli.IPinger {
      * This allows hot-reloading of the configuration from disk.
      *
      * If a ping cycle is in flight the accepted configuration is held as
-     * pending and applied at the next cycle boundary (top of the loop in
-     * run()), so the current cycle completes under its original device
-     * snapshot and no stale in-flight ping can republish the metrics of a
-     * device that is being removed.
+     * pending and applied at the next cycle boundary (immediately after the
+     * in-flight cycle's results are processed, before the interval wait),
+     * so the current cycle completes under its original device snapshot and
+     * no stale in-flight ping can republish the metrics of a device that is
+     * being removed. Otherwise the configuration applies immediately and
+     * any pending wait between cycles is woken so the next cycle runs under
+     * the new configuration without sleeping out the old interval.
      */
     public updateConfig(config: dli.IConfig, config_str: string): void {
         if (this.ping_cycle_in_flight) {
@@ -348,6 +364,7 @@ export class Pinger implements dli.IPinger {
         }
 
         this.applyConfigUpdate(config, config_str);
+        this.signalCycleWake();
     }
 
     /**
@@ -403,8 +420,11 @@ export class Pinger implements dli.IPinger {
      * termination.
      */
     public async close(): Promise<void> {
-        // stop the run() loop at its next check
+        // stop the run() loop at its next check — and wake it immediately
+        // if it is blocked in the wait between cycles, so shutdown does
+        // not sleep out the monitoring interval
         this.closed = true;
+        this.signalCycleWake();
 
         // close the net-ping session
         this.ip_pinger.close();
@@ -442,25 +462,16 @@ export class Pinger implements dli.IPinger {
     // ******** IPinger properties
 
     public async run(): Promise<void> {
-        // wait for things to settle-down, waking early if the net-ping
-        // session fails so a fatal error is not masked by the settle wait
-        await this.wait_or_fatal(2000);
+        // wait for things to settle-down; the wait is woken early by a
+        // configuration change, by close(), or by the net-ping session
+        // failing, so none of those has to sleep out the settle delay
+        await this.waitForNextCycle(2000);
 
         // log-it
         this.logger.write_debug(this.originator + ".run", `Pinger Loop Cycle Started.`);
 
         // loop-it
         while (!this.closed) {
-            // Apply a configuration update that was requested while the
-            // previous cycle was still in flight. All of that cycle's pings
-            // have completed here, so removing the now-orphaned devices'
-            // metric series cannot be raced by a stale in-flight result.
-            if (this.pending_update !== undefined) {
-                const { config, config_str } = this.pending_update;
-                this.pending_update = undefined;
-                this.applyConfigUpdate(config, config_str);
-            }
-
             this.ping_cycle_in_flight = true;
 
             // log-it
@@ -573,6 +584,18 @@ export class Pinger implements dli.IPinger {
             // fully processed; configuration updates may now apply directly.
             this.ping_cycle_in_flight = false;
 
+            // Cycle boundary: apply a configuration update that was
+            // requested while this cycle was in flight. All of the cycle's
+            // pings have completed, so removing the now-orphaned devices'
+            // metric series cannot be raced by a stale in-flight result,
+            // and the wait below is computed from the new configuration
+            // (its new intervalSecs, not the one the cycle ran under).
+            if (this.pending_update !== undefined) {
+                const { config, config_str } = this.pending_update;
+                this.pending_update = undefined;
+                this.applyConfigUpdate(config, config_str);
+            }
+
             // The session failed during the cycle: its flush of the in-flight
             // pings was recorded as cancellations above, so stop the loop
             // with the fatal error instead of starting another cycle.
@@ -584,10 +607,12 @@ export class Pinger implements dli.IPinger {
             this.logger.write_debug(this.originator + ".run", `PINGING COMPLETE. ${upCount} devices up, ${downCount} devices down.`, cycle_start_date);
             this.logger.write_debug(this.originator + ".run", `Cycle duration: ${cycle_duration_ms.toFixed(0)}ms`, cycle_start_date);
 
-            // wait-for-it — the wait also races the fatal-session-error
-            // wake-up, so a session failure ends the loop with the error
-            // instead of sleeping out the interval
-            await this.wait_or_fatal(this.configuration.intervalSecs * 1000, cycle_start_date);
+            // wait-for-it — the wait ends when the interval elapses, when
+            // the configuration changes (the loop starts the next cycle
+            // under the new configuration), or when close() is requested
+            // (the loop exits); a fatal session failure ends the loop with
+            // the error instead of sleeping out the interval
+            await this.waitForNextCycle(this.configuration.intervalSecs * 1000, cycle_start_date);
         }
     } // end-run
 
@@ -662,19 +687,79 @@ export class Pinger implements dli.IPinger {
     }
 
     /**
-     * Waits for the given duration (or until the deadline set at `since`),
-     * waking early if the net-ping session fails unexpectedly. Resolves
-     * normally when the wait elapses; rejects with the fatal session error
-     * when the session failed while waiting.
+     * Returns the deferred promise that ends the current wait between
+     * cycles early, creating it on demand. waitForNextCycle calls this
+     * synchronously at the start of the wait, so no other code can observe
+     * the gap between one wait ending and the next one beginning.
      */
-    private async wait_or_fatal(durationMs: number, since?: Date): Promise<void> {
-        const wait = since !== undefined
-            ? sleep_from_start(durationMs, since)
-            : sleep(durationMs);
-        await Promise.race([wait, this.fatal_session_error_promise]);
-        if (this.fatal_session_error !== undefined) {
+    private getCycleWake(): Promise<void> {
+        if (this.cycle_wake_promise === undefined) {
+            this.cycle_wake_promise = new Promise<void>((resolve) => {
+                this.cycle_wake_resolve = resolve;
+            });
+        }
+        return this.cycle_wake_promise;
+    }
+
+    /**
+     * Wakes a pending wait between cycles (if any), so a configuration
+     * change or a close() request takes effect without sleeping out the
+     * interval. A signal with no wait pending is dropped: the next wait
+     * re-checks the closed state on entry and computes its deadline from
+     * the (already updated) live configuration.
+     */
+    private signalCycleWake(): void {
+        this.cycle_wake_resolve?.();
+        this.cycle_wake_promise = undefined;
+        this.cycle_wake_resolve = undefined;
+    }
+
+    /**
+     * Waits between cycles. The wait ends for exactly one of four reasons:
+     * - the interval elapses — resolves `"interval"`;
+     * - the configuration changes while waiting — resolves
+     *   `"config_changed"` (the loop starts the next cycle immediately);
+     * - close() is requested — resolves `"shutdown"` (the loop exits);
+     * - the net-ping session fails unexpectedly — rejects with the fatal
+     *   session error.
+     *
+     * `intervalMs` is measured from `since` when given, so the deadline
+     * stays anchored to the cycle start instead of drifting by the cycle's
+     * own duration.
+     */
+    private async waitForNextCycle(intervalMs: number, since?: Date): Promise<CycleWaitOutcome> {
+        // closed may have been set while no wait was pending (e.g. close()
+        // during an in-flight cycle): end the wait without sleeping
+        if (this.closed) {
+            return "shutdown";
+        }
+
+        const remainingMs = since !== undefined
+            ? intervalMs - (Date.now() - since.getTime())
+            : intervalMs;
+
+        // The interval timer is explicit (not sleep()) so a wake that ends
+        // the wait early can clear it: an abandoned timer would otherwise
+        // keep the process — and the test runner — alive for the
+        // remainder of the interval.
+        let intervalTimer: ReturnType<typeof setTimeout> | undefined;
+        const intervalElapsed = new Promise<CycleWaitOutcome>((resolve) => {
+            intervalTimer = setTimeout(() => resolve("interval"), Math.max(0, remainingMs));
+        });
+
+        const outcome = await Promise.race([
+            intervalElapsed,
+            this.getCycleWake().then((): CycleWaitOutcome => (this.closed ? "shutdown" : "config_changed")),
+            this.fatal_session_error_promise.then((): "fatal" => "fatal"),
+        ]);
+
+        if (intervalTimer !== undefined) {
+            clearTimeout(intervalTimer);
+        }
+        if (outcome === "fatal") {
             throw this.fatal_session_error;
         }
+        return outcome;
     }
 
     private async ping_idevice(device: dli.IDevice, cycleStartDate: Date): Promise<PingResultInternal> {
