@@ -20,10 +20,12 @@ const cors = require("cors");
 // ******** Result types for ping operations
 
 // A completed ping is a real network observation (success or failure).
-// A cancelled ping was aborted by Pinger.close() while in flight — net-ping
-// flushes every outstanding callback with a plain error when its socket
-// closes. Cancellation is not a network failure, so it is a distinct
-// state that the cycle aggregation must skip rather than record.
+// A cancelled ping was aborted while in flight — by Pinger.close() at
+// shutdown, or by the net-ping session failing unexpectedly (whose error
+// handler closes the session). net-ping flushes every outstanding callback
+// with a plain error when its socket closes. Cancellation is not a network
+// failure, so it is a distinct state that the cycle aggregation must skip
+// rather than record.
 type PingResultInternal =
     | {
         ipAddress: string;
@@ -73,6 +75,21 @@ export class Pinger implements dli.IPinger {
     private ping_cycle_in_flight = false;
     // Set by close() so the run() loop can exit at the next check
     private closed = false;
+    // The first unexpected net-ping session error, recorded by the session's
+    // "error" handler before it closes the session. Once set, the pinger is
+    // no longer operational: the session is closed and cannot be reused, so
+    // the run() loop terminates with this error and only a process restart
+    // (which recreates the session) can recover.
+    private fatal_session_error?: Error;
+    // Resolved (with the fatal error, never rejected) when the session fails
+    // unexpectedly, so run() can wake from its waits instead of sleeping out
+    // the interval. It only ever settles with a value: a session failure
+    // while run() is between waits can therefore never become an unhandled
+    // promise rejection.
+    private fatal_session_error_resolve: (error: Error) => void = () => { };
+    private readonly fatal_session_error_promise: Promise<Error> = new Promise<Error>((resolve) => {
+        this.fatal_session_error_resolve = resolve;
+    });
     // ----
     private prometheus_Pinger_Up_Gauge!: Gauge;
     private prometheus_Pinger_Roundtrip_Gauge!: Gauge;
@@ -409,12 +426,25 @@ export class Pinger implements dli.IPinger {
         return this.logger;
     }
 
+    /**
+     * True while the pinger can still perform ping cycles. Once the
+     * net-ping session has failed unexpectedly the pinger is permanently
+     * not operational: the session is closed and cannot be reused, so the
+     * only recovery is a process restart. main() uses this to terminate
+     * with a non-zero exit status; /health uses it to stop reporting
+     * healthy to the container orchestrator.
+     */
+    public isOperational(): boolean {
+        return this.fatal_session_error === undefined;
+    }
+
     // ****************************************************************
     // ******** IPinger properties
 
     public async run(): Promise<void> {
-        // wait for things to settle-down
-        await sleep(2000);
+        // wait for things to settle-down, waking early if the net-ping
+        // session fails so a fatal error is not masked by the settle wait
+        await this.wait_or_fatal(2000);
 
         // log-it
         this.logger.write_debug(this.originator + ".run", `Pinger Loop Cycle Started.`);
@@ -543,12 +573,21 @@ export class Pinger implements dli.IPinger {
             // fully processed; configuration updates may now apply directly.
             this.ping_cycle_in_flight = false;
 
+            // The session failed during the cycle: its flush of the in-flight
+            // pings was recorded as cancellations above, so stop the loop
+            // with the fatal error instead of starting another cycle.
+            if (this.fatal_session_error !== undefined) {
+                throw this.fatal_session_error;
+            }
+
             // log-it
             this.logger.write_debug(this.originator + ".run", `PINGING COMPLETE. ${upCount} devices up, ${downCount} devices down.`, cycle_start_date);
             this.logger.write_debug(this.originator + ".run", `Cycle duration: ${cycle_duration_ms.toFixed(0)}ms`, cycle_start_date);
 
-            // wait-for-it
-            await sleep_from_start(this.configuration.intervalSecs * 1000, cycle_start_date);
+            // wait-for-it — the wait also races the fatal-session-error
+            // wake-up, so a session failure ends the loop with the error
+            // instead of sleeping out the interval
+            await this.wait_or_fatal(this.configuration.intervalSecs * 1000, cycle_start_date);
         }
     } // end-run
 
@@ -596,17 +635,46 @@ export class Pinger implements dli.IPinger {
         });
 
         // log error
-        this.ip_pinger.on("error", function (error: Error) {
+        this.ip_pinger.on("error", (error: Error) => {
+            const err = ensureError(error);
+            const errorMsg = `${err.message}\n${err.stack}`;
+
+            // An unexpected session failure is a fatal application state,
+            // not a per-device network failure: record it (the first error
+            // wins if the session reports more than one) before closing the
+            // session, so the flush of the in-flight pings sees the fatal
+            // state and ping_idevice records them as cancellations rather
+            // than device-down observations. The wake-up promise makes
+            // run() terminate with this error; the application then
+            // terminates so the container orchestrator can restart it with
+            // a fresh session.
+            if (this.fatal_session_error === undefined) {
+                this.fatal_session_error = err;
+            }
+            this.fatal_session_error_resolve(this.fatal_session_error);
+
             // log-it
-            const errorMsg = error instanceof Error ? `${error.message}\n${error.stack}` : String(error);
             logger.write_error(`${originator}.setup_net_pinger_functions`, errorMsg);
 
             // close-it
             net_pinger.close();
-
-            // TODO: think about how this will affect the MAIN function
-            // TODO: perhaps this should throw an error
         });
+    }
+
+    /**
+     * Waits for the given duration (or until the deadline set at `since`),
+     * waking early if the net-ping session fails unexpectedly. Resolves
+     * normally when the wait elapses; rejects with the fatal session error
+     * when the session failed while waiting.
+     */
+    private async wait_or_fatal(durationMs: number, since?: Date): Promise<void> {
+        const wait = since !== undefined
+            ? sleep_from_start(durationMs, since)
+            : sleep(durationMs);
+        await Promise.race([wait, this.fatal_session_error_promise]);
+        if (this.fatal_session_error !== undefined) {
+            throw this.fatal_session_error;
+        }
     }
 
     private async ping_idevice(device: dli.IDevice, cycleStartDate: Date): Promise<PingResultInternal> {
@@ -622,16 +690,17 @@ export class Pinger implements dli.IPinger {
             this.ip_pinger.pingHost(ipAddress, (error: Error | null, target: string, sent: Date, received: Date) => {
                 // check
                 if (error !== null) {
-                    // An error that arrives after close() began is the
-                    // session-close flush: net-ping invokes every
-                    // outstanding callback with a plain error when its
-                    // socket closes (once the socket is closed no timeout
-                    // or response can still arrive). That is an
-                    // application-initiated cancellation, not a network
-                    // failure — resolve it as cancelled so the cycle
+                    // An error that arrives after close() began, or after
+                    // the session failed unexpectedly, is the session-close
+                    // flush: net-ping invokes every outstanding callback
+                    // with a plain error when its socket closes (once the
+                    // socket is closed no timeout or response can still
+                    // arrive). That is an application-level cancellation —
+                    // shutdown or fatal session failure — not a network
+                    // failure: resolve it as cancelled so the cycle
                     // neither counts the device down nor records an error.
-                    if (this.closed) {
-                        logger.write_debug(`${originator}.ping_idevice`, `"${ipAddress}" ping cancelled during shutdown.`, cycleStartDate);
+                    if (this.closed || this.fatal_session_error !== undefined) {
+                        logger.write_debug(`${originator}.ping_idevice`, `"${ipAddress}" ping cancelled (shutdown or session failure).`, cycleStartDate);
                         resolve({
                             ipAddress: ipAddress,
                             deviceName: deviceName,

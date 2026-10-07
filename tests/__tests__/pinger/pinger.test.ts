@@ -183,6 +183,143 @@ describe("Pinger.close() (in-flight ping cancellation at shutdown)", () => {
     }, 15000);
 });
 
+describe("Pinger.run() (fatal net-ping session error)", () => {
+    // The mocked session exposes on() as a jest.fn(), so the listeners the
+    // pinger registered can be retrieved and invoked
+    interface SessionMock {
+        pingHost: jest.Mock;
+        close: jest.Mock;
+        on: jest.Mock;
+    }
+    function sessionMock(): SessionMock {
+        const netPing = jest.requireMock("net-ping") as {
+            createSession: { mock: { results: Array<{ value: SessionMock }> } };
+        };
+        return netPing.createSession.mock.results.at(-1)!.value;
+    }
+    function sessionErrorListener(session: SessionMock): (error: Error) => void {
+        const call = session.on.mock.calls.find((c) => c[0] === "error");
+        if (!call) {
+            throw new Error("no 'error' listener registered on the net-ping session mock");
+        }
+        return call[1] as (error: Error) => void;
+    }
+    // Hold every ping in flight, and mirror the real net-ping 1.2.4
+    // behavior: closing the session flushes every outstanding callback
+    // with a plain error
+    function flushOnClose(session: SessionMock): Array<(error: Error | null, target: string, sent: Date, received: Date) => void> {
+        const pending: Array<(error: Error | null, target: string, sent: Date, received: Date) => void> = [];
+        session.pingHost.mockImplementation((_host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            pending.push(callback);
+        });
+        session.close.mockImplementation(() => {
+            for (const callback of pending) {
+                callback(new Error("Socket forcibly closed"), "", new Date(), new Date());
+            }
+        });
+        return pending;
+    }
+    function getHealth(port: number): Promise<{ status: number; body: Record<string, unknown> }> {
+        return new Promise((resolve, reject) => {
+            http.get({ host: "127.0.0.1", port: port, path: "/health" }, (res) => {
+                let data = "";
+                res.on("data", (chunk) => { data += chunk; });
+                res.on("end", () => {
+                    resolve({ status: res.statusCode ?? 0, body: JSON.parse(data) as Record<string, unknown> });
+                });
+            }).on("error", reject);
+        });
+    }
+
+    it("run() rejects with the session error and in-flight pings are not recorded as device-down", async () => {
+        // Spy logger so a fatal session error must surface as one
+        // session-level error, not as per-device ping errors
+        const write_error = jest.fn();
+        const spyLogger: ILogger = {
+            global_log_level: (): LogLevel => LogLevel.None,
+            global_log_level_string: (): string => "None",
+            write_info: jest.fn(),
+            write_warn: jest.fn(),
+            write_error: write_error,
+            write_debug: jest.fn(),
+        };
+
+        const pinger = new Pinger(makeConfig([deviceA, deviceB], { intervalSecs: 5 }), "initial config", spyLogger, new Date(), 0);
+        pingers.push(pinger);
+        await pinger.start();
+
+        // Prior history: both devices were last seen up
+        const metrics = pingerMetrics(pinger);
+        metrics.prometheus_Pinger_Up_Gauge.set(deviceALabels, 1);
+        metrics.prometheus_Pinger_Up_Gauge.set(deviceBLabels, 1);
+
+        const session = sessionMock();
+        const pending = flushOnClose(session);
+
+        const runPromise = pinger.run();
+        await waitFor(() => pending.length === 2);
+
+        // The session fails unexpectedly while the cycle is in flight
+        const sessionError = new Error("ICMP socket failed: ECONNRESET");
+        sessionErrorListener(session)(sessionError);
+
+        // The run loop terminates with the fatal session error
+        await expect(runPromise).rejects.toBe(sessionError);
+
+        // The pinger is no longer operational and the session was closed
+        expect(pinger.isOperational()).toBe(false);
+        expect(session.close).toHaveBeenCalledTimes(1);
+
+        const output = await register.metrics();
+        // The in-flight pings were recorded as cancellations, not failures:
+        // devices keep their last recorded state (up)...
+        expect(output).toMatch(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m"));
+        expect(output).toMatch(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceB.ipAddress}"[^}]*\\} 1$`, "m"));
+        // ...no failure timestamps were recorded...
+        expect(output).not.toMatch(/(^|\n)pinged_last_failure_timestamp\{/);
+        // ...no error-counter entries...
+        expect(output).not.toMatch(/(^|\n)pinged_errors_total\{/);
+        // ...and no latency observations
+        expect(output).not.toMatch(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress=`));
+        // The failure was logged once, as a session-level error — not as
+        // per-device ping errors
+        expect(write_error).toHaveBeenCalledTimes(1);
+        expect(write_error.mock.calls[0][1]).toContain("ICMP socket failed: ECONNRESET");
+    }, 15000);
+
+    it("/health reports 200 healthy before the failure and 503 unhealthy after", async () => {
+        const pinger = await createPinger(makeConfig([deviceA]));
+        const session = sessionMock();
+        const port = ((pinger as unknown as { api_server: http.Server }).api_server.address() as { port: number }).port;
+
+        expect(pinger.isOperational()).toBe(true);
+        const healthy = await getHealth(port);
+        expect(healthy.status).toBe(200);
+        expect(healthy.body).toMatchObject({ status: "healthy" });
+
+        sessionErrorListener(session)(new Error("ICMP socket failed: ECONNRESET"));
+
+        expect(pinger.isOperational()).toBe(false);
+        const unhealthy = await getHealth(port);
+        expect(unhealthy.status).toBe(503);
+        expect(unhealthy.body).toMatchObject({ status: "unhealthy" });
+    });
+
+    it("a subsequent run() rejects immediately with the same error without starting another cycle", async () => {
+        const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 5 }));
+        const session = sessionMock();
+        const sessionError = new Error("ICMP socket failed: ECONNRESET");
+
+        sessionErrorListener(session)(sessionError);
+
+        // Every run() call must reject with the fatal error...
+        await expect(pinger.run()).rejects.toBe(sessionError);
+        await expect(pinger.run()).rejects.toBe(sessionError);
+        // ...without attempting any ping on the closed session
+        expect(session.pingHost).not.toHaveBeenCalled();
+    });
+});
+
 describe("Pinger.start() (API listener startup)", () => {
     it("resolves once the API server is listening", async () => {
         const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date(), 0);

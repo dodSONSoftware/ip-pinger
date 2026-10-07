@@ -99,6 +99,9 @@ export interface IPinger {
     run(): Promise<void>;
     ping_device(ip_address: string): Promise<[boolean, number]>;
     updateConfig(config: IConfig, config_str: string): void;
+    // False once the net-ping session has failed unexpectedly: the pinger
+    // can no longer run cycles and only a process restart recovers it.
+    isOperational(): boolean;
     close(): Promise<void>;
 }
 

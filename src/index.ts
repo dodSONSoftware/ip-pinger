@@ -91,6 +91,23 @@ async function main() {
             // log-it
             const err = sysFunc.ensureError(error);
             logger.write_error(originator + ".main", `${err.name}: ${err.message}`);
+
+            // A failed ping engine is a terminal application state: the
+            // net-ping session is closed and cannot be reused, so calling
+            // run() again on the same instance cannot recover. Clean up
+            // and exit non-zero so the container orchestrator
+            // (restart: unless-stopped) recreates the process with a
+            // fresh session.
+            if (!pinger_dude.isOperational()) {
+                logger.write_error(originator + ".main", `Ping engine failed permanently; terminating the process for a container-managed restart.`);
+                try {
+                    await pinger_dude.close();
+                } catch (close_error) {
+                    const close_err = sysFunc.ensureError(close_error);
+                    logger.write_error(originator + ".main", `Error during shutdown: ${close_err.name}: ${close_err.message}`);
+                }
+                process.exit(1);
+            }
         }
     }
 }

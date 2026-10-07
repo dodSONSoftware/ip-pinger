@@ -22,6 +22,7 @@ export const OK = 200;
 export const _400 = 400;
 export const _418 = 418;
 export const InternalServerError = 500;
+export const ServiceUnavailable = 503;
 
 // **** MIME Types
 
@@ -210,8 +211,8 @@ export const endpointsInfo: EndpointsInfo = {
             route: "/health",
             verb: "GET",
             requestBody: "None",
-            responseBody: "{ status: \"healthy\", timestamp: \"ISO-date-string\" }",
-            description: "Health check endpoint for container orchestration."
+            responseBody: "{ status: \"healthy\" | \"unhealthy\", timestamp: \"ISO-date-string\", reason?: string } — 200 while operational, 503 after a fatal net-ping session failure",
+            description: "Health check endpoint for container orchestration. Reports 503 unhealthy once the pinger is no longer operational."
         },
         {
             name: "Endpoints",
@@ -607,7 +608,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      * /health:
      *   get:
      *     summary: Health check endpoint.
-     *     description: Returns health status for container orchestration (Kubernetes liveness/readiness probes).
+     *     description: Returns health status for container orchestration (Kubernetes liveness/readiness probes). Reports 503 once the net-ping session has failed and the pinger is no longer operational, so the orchestrator can restart the process.
      *     responses:
      *       200:
      *         description: Service is healthy
@@ -622,12 +623,41 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                 timestamp:
      *                   type: string
      *                   format: date-time
+     *       503:
+     *         description: Service is unhealthy — the net-ping session failed and the pinger is no longer operational
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 status:
+     *                   type: string
+     *                   example: "unhealthy"
+     *                 reason:
+     *                   type: string
+     *                 timestamp:
+     *                   type: string
+     *                   format: date-time
      */
     app.route("/health").get((req: express.Request, res: express.Response) => {
-        res.type(Json).status(OK).json({
-            status: "healthy",
-            timestamp: new Date().toISOString()
-        });
+        const timestamp = new Date().toISOString();
+
+        if (ip_pinger.isOperational()) {
+            res.type(Json).status(OK).json({
+                status: "healthy",
+                timestamp: timestamp
+            });
+        } else {
+            // The net-ping session has failed and been closed: the pinger
+            // is no longer monitoring anything. Report non-2xx so the
+            // container orchestrator can restart the process, which
+            // recreates the session.
+            res.type(Json).status(ServiceUnavailable).json({
+                status: "unhealthy",
+                reason: "net-ping session failure: the pinger is no longer operational",
+                timestamp: timestamp
+            });
+        }
     });
 
     /**

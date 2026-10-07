@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.17 (release codename: Cobalt Fox)
+**Version:** 1.11.18 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -138,7 +138,7 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 ## Key Patterns
 
 - **Route state:** instance-local — `createRoutes()` keeps its configuration, pinger, logger, and startup baseline in closure scope, so multiple Pinger instances / route applications never share mutable state
-- **Error recovery:** Unhandled exceptions logged via `logger.write_error()`, loop continues
+- **Error recovery:** Unhandled exceptions in the `main()` run loop are logged via `logger.write_error()`, and the loop continues — with one terminal exception: an unexpected net-ping session failure is fatal. The session's `"error"` handler records the failure (first error wins), closes the session, and the in-flight pings flushed by that close are treated as cancellations, not device-down observations. `Pinger.isOperational()` then returns false, `/health` responds 503, `run()` rejects with the session error, and `main()` closes the API server and exits non-zero so the container orchestrator can restart the process with a fresh session
 - **Net-ping library:** Uses `createSession()` with IPv4, 16-byte packets, 1 retry, 2s timeout, 128 TTL
 - **Promise-based pinging:** `pingHost()` wrapped in Promise for async/await compatibility
 - **Prometheus gauges:** Separate gauges for up status and round-trip time

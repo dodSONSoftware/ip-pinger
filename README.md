@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.17.
+**Release:** Cobalt Fox — version 1.11.18.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -144,6 +144,7 @@ Settings split into two groups:
 | GET | `/reload-config` | Reload configuration from disk |
 | GET | `/swagger` | Interactive API documentation |
 | GET | `/metrics` | Prometheus metrics endpoint |
+| GET | `/health` | Health check; 200 while operational, 503 after a fatal net-ping session failure |
 
 ## Prometheus Metrics
 
@@ -198,6 +199,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.18 | Treat a net-ping session failure as fatal: `/health` reports 503 and the process exits non-zero for a container-managed restart |
 | v1.11.0 | Add graceful shutdown (`Pinger.close()`) and remove unused public surface |
 | v1.9.5 | Remove unused port 9090 references |
 | v1.9.4 | Add README.md documentation |
