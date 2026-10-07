@@ -8,7 +8,8 @@ import { Pinger, PING_ERROR_TYPES } from "../../../src/Pinger";
 import { API_PORT, NoOpLogger } from "../../../src/common";
 import { register } from "prom-client";
 import type { Counter, Gauge, Histogram } from "prom-client";
-import type { IConfig, IDevice } from "../../../src/interfaces";
+import type { IConfig, IDevice, ILogger } from "../../../src/interfaces";
+import { LogLevel } from "../../../src/interfaces";
 
 const deviceA: IDevice = { source: "Device A", ipAddress: "10.0.0.1", deviceType: "sensor" };
 const deviceB: IDevice = { source: "Device B", ipAddress: "10.0.0.2", deviceType: "server" };
@@ -117,6 +118,69 @@ describe("Pinger.close() (lifecycle)", () => {
         expect(session.close).toHaveBeenCalledTimes(1);
         expect(api_server.listening).toBe(false);
     });
+});
+
+describe("Pinger.close() (in-flight ping cancellation at shutdown)", () => {
+    it("treats pings aborted by close() as cancellations, not network failures", async () => {
+        // Spy logger so a shutdown cancellation must not produce a
+        // misleading ping-error log
+        const write_error = jest.fn();
+        const spyLogger: ILogger = {
+            global_log_level: (): LogLevel => LogLevel.None,
+            global_log_level_string: (): string => "None",
+            write_info: jest.fn(),
+            write_warn: jest.fn(),
+            write_error: write_error,
+            write_debug: jest.fn(),
+        };
+
+        const pinger = new Pinger(makeConfig([deviceA, deviceB], { intervalSecs: 5 }), "initial config", spyLogger, new Date(), 0);
+        pingers.push(pinger);
+        await pinger.start();
+
+        // Prior history: both devices were last seen up, and A carries a
+        // known, pre-existing error
+        const metrics = pingerMetrics(pinger);
+        metrics.prometheus_Pinger_Up_Gauge.set(deviceALabels, 1);
+        metrics.prometheus_Pinger_Up_Gauge.set(deviceBLabels, 1);
+        metrics.prometheus_Pinger_Error_Total.inc({ ...deviceALabels, errorType: "timeout" });
+
+        // Hold every ping in flight so close() finds them outstanding
+        const netPing = jest.requireMock("net-ping") as { createSession: { mock: { results: Array<{ value: { pingHost: jest.Mock; close: jest.Mock } }> } } };
+        const session = netPing.createSession.mock.results.at(-1)!.value;
+        const pending: Array<(error: Error | null, target: string, sent: Date, received: Date) => void> = [];
+        session.pingHost.mockImplementation((_host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            pending.push(callback);
+        });
+
+        // Mirror the real net-ping 1.2.4 behavior: closing the session
+        // flushes every outstanding callback with a plain error
+        session.close.mockImplementation(() => {
+            for (const callback of pending) {
+                callback(new Error("Socket forcibly closed"), "", new Date(), new Date());
+            }
+        });
+
+        const runPromise = pinger.run();
+        await waitFor(() => pending.length === 2);
+
+        await pinger.close();
+        await runPromise; // the cycle must settle with the cancelled results
+
+        const output = await register.metrics();
+        // Devices keep their last recorded state — not marked down by shutdown
+        expect(output).toMatch(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m"));
+        expect(output).toMatch(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceB.ipAddress}"[^}]*\\} 1$`, "m"));
+        // No failure timestamp was recorded for either device (no labeled series)
+        expect(output).not.toMatch(/(^|\n)pinged_last_failure_timestamp\{/);
+        // Error counters unchanged: only A's pre-seeded timeout series exists
+        expect(output).toMatch(new RegExp(`^pinged_errors_total\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*errorType="timeout"\\} 1$`, "m"));
+        expect(output).not.toMatch(new RegExp(`pinged_errors_total\\{[^}]*ipAddress="${deviceB.ipAddress}"`));
+        // No latency observation was recorded for the cancelled pings
+        expect(output).not.toMatch(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress=`));
+        // No misleading ping-error log was emitted for the cancellations
+        expect(write_error).not.toHaveBeenCalled();
+    }, 15000);
 });
 
 describe("Pinger.start() (API listener startup)", () => {

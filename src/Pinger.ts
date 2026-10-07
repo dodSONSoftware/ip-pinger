@@ -19,13 +19,26 @@ const cors = require("cors");
 // ****************************************************************
 // ******** Result types for ping operations
 
-interface PingResultInternal {
-    ipAddress: string;
-    deviceName: string;
-    deviceType: string;
-    isAlive: boolean;
-    roundTripMs: number;
-}
+// A completed ping is a real network observation (success or failure).
+// A cancelled ping was aborted by Pinger.close() while in flight — net-ping
+// flushes every outstanding callback with a plain error when its socket
+// closes. Cancellation is not a network failure, so it is a distinct
+// state that the cycle aggregation must skip rather than record.
+type PingResultInternal =
+    | {
+        ipAddress: string;
+        deviceName: string;
+        deviceType: string;
+        status: "completed";
+        isAlive: boolean;
+        roundTripMs: number;
+    }
+    | {
+        ipAddress: string;
+        deviceName: string;
+        deviceType: string;
+        status: "cancelled";
+    };
 
 /**
  * The finite set of errorType label values the error counter can carry.
@@ -439,7 +452,15 @@ export class Pinger implements dli.IPinger {
 
             // process results and count up/down devices
             for (const ping_result of all_ping_results) {
-                const { ipAddress, deviceName, deviceType, isAlive, roundTripMs }: PingResultInternal = ping_result;
+                // A ping cancelled by close() was aborted by the application,
+                // not failed by the network: skip it entirely so it updates
+                // no device state, aggregate count, error counter, or latency
+                // observation.
+                if (ping_result.status === "cancelled") {
+                    continue;
+                }
+
+                const { ipAddress, deviceName, deviceType, isAlive, roundTripMs } = ping_result;
                 const isAliveNum = isAlive ? 1 : 0;
 
                 if (isAlive) {
@@ -601,6 +622,25 @@ export class Pinger implements dli.IPinger {
             this.ip_pinger.pingHost(ipAddress, (error: Error | null, target: string, sent: Date, received: Date) => {
                 // check
                 if (error !== null) {
+                    // An error that arrives after close() began is the
+                    // session-close flush: net-ping invokes every
+                    // outstanding callback with a plain error when its
+                    // socket closes (once the socket is closed no timeout
+                    // or response can still arrive). That is an
+                    // application-initiated cancellation, not a network
+                    // failure — resolve it as cancelled so the cycle
+                    // neither counts the device down nor records an error.
+                    if (this.closed) {
+                        logger.write_debug(`${originator}.ping_idevice`, `"${ipAddress}" ping cancelled during shutdown.`, cycleStartDate);
+                        resolve({
+                            ipAddress: ipAddress,
+                            deviceName: deviceName,
+                            deviceType: deviceType,
+                            status: "cancelled"
+                        });
+                        return;
+                    }
+
                     // Increment error counter
                     const errorType = this.getErrorType(error);
                     if (this.prometheus_Pinger_Error_Total) {
@@ -620,6 +660,7 @@ export class Pinger implements dli.IPinger {
                         ipAddress: ipAddress,
                         deviceName: deviceName,
                         deviceType: deviceType,
+                        status: "completed",
                         isAlive: false,
                         roundTripMs: 0
                     });
@@ -635,6 +676,7 @@ export class Pinger implements dli.IPinger {
                         ipAddress: ipAddress,
                         deviceName: deviceName,
                         deviceType: deviceType,
+                        status: "completed",
                         isAlive: true,
                         roundTripMs
                     });
