@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.20.
+**Release:** Cobalt Fox — version 1.11.21.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -199,6 +199,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.21 | Stop advertising a deployment-specific server address in the OpenAPI document: the hard-coded `servers` URL is removed so Swagger UI targets the origin serving `/swagger` |
 | v1.11.20 | Make the `/about` boot date instance-local: each route registration carries its own boot date instead of mutating a shared module-level value |
 | v1.11.19 | Forward async route failures to Express error handling: `/ping`, `/ping/:target`, and `/metrics` failures are answered with a logged 500 JSON response instead of an unhandled rejection |
 | v1.11.18 | Treat a net-ping session failure as fatal: `/health` reports 503 and the process exits non-zero for a container-managed restart |

@@ -17,11 +17,9 @@ const swaggerOptions = {
             version: APP_VERSION,
             description: "Will ping devices and report their roundtrip in milliseconds.",
         },
-        servers: [
-            {
-                url: "http://192.168.7.131:3300/", // Change this to your server URL
-            },
-        ],
+        // No `servers` entry: the OpenAPI spec deliberately carries no host
+        // address, so Swagger UI uses the origin of the page serving the
+        // document instead of a deployment-specific IP baked into source.
     },
     // Resolve the route annotations relative to this module so the same code works
     // in the compiled production layout (dist/routes/*.js) and in the source

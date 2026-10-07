@@ -23,6 +23,10 @@ function specPaths(spec: { paths?: Record<string, unknown> }): string[] {
     return Object.keys(spec.paths ?? {});
 }
 
+function specServers(spec: { servers?: Array<{ url?: string }> }): string[] {
+    return (spec.servers ?? []).map((server) => server.url ?? "");
+}
+
 describe("Swagger route discovery", () => {
     it("discovers every documented route from the module-relative route path", () => {
         // The spec builder resolves routes relative to the swagger module itself,
@@ -52,6 +56,16 @@ describe("Swagger route discovery", () => {
         const paths = specPaths(distSwagger.getSwaggerSpec());
         for (const expected of expectedPaths) {
             expect(paths).toContain(expected);
+        }
+    });
+
+    it("does not advertise a deployment-specific server address", () => {
+        // A `servers` entry with an absolute deployment URL would make
+        // "Try it out" target whatever host was current when the spec was
+        // written, so any advertised URL must be absent or relative.
+        for (const url of specServers(getSwaggerSpec())) {
+            expect(url).not.toMatch(/^(https?:)?\/\//);
+            expect(url).not.toMatch(/\b\d{1,3}(\.\d{1,3}){3}\b/);
         }
     });
 });
