@@ -319,12 +319,19 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                 version:
      *                   type: string
      */
-    app.route("/ping").get(async (req: express.Request, res: express.Response) => {
-        // configurationObj is now IConfig which has devices: IDevice[]
-        // So we can safely access it without additional runtime checks
-        const devices = configurationObj.devices;
-        const results = await getPings(devices);
-        res.type("application/json").status(OK).json(results);
+    app.route("/ping").get(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+        try {
+            // configurationObj is now IConfig which has devices: IDevice[]
+            // So we can safely access it without additional runtime checks
+            const devices = configurationObj.devices;
+            const results = await getPings(devices);
+            res.type("application/json").status(OK).json(results);
+        } catch (error) {
+            // Express 4 does not forward rejected async handlers to its
+            // error path; hand the failure off explicitly so the error
+            // middleware answers it as a controlled 500.
+            next(error);
+        }
     });
 
     /**
@@ -358,8 +365,15 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                   type: number
      *                   example: 45
      */
-    app.route("/ping/:target").get(async (req: express.Request, res: express.Response) => {
-        res.type("application/json").status(OK).json(await getPing(String(req.params.target)));
+    app.route("/ping/:target").get(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+        try {
+            res.type("application/json").status(OK).json(await getPing(String(req.params.target)));
+        } catch (error) {
+            // Express 4 does not forward rejected async handlers to its
+            // error path; hand the failure off explicitly so the error
+            // middleware answers it as a controlled 500.
+            next(error);
+        }
     });
 
     /**
@@ -597,10 +611,17 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *             schema:
      *               type: string
      */
-    app.route("/metrics").get(async (req: express.Request, res: express.Response) => {
-        const metrics = await register.metrics();
-        res.set("Content-Type", register.contentType);
-        res.end(metrics);
+    app.route("/metrics").get(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+        try {
+            const metrics = await register.metrics();
+            res.set("Content-Type", register.contentType);
+            res.end(metrics);
+        } catch (error) {
+            // Express 4 does not forward rejected async handlers to its
+            // error path; hand the failure off explicitly so the error
+            // middleware answers it as a controlled 500.
+            next(error);
+        }
     });
 
     /**
@@ -694,6 +715,34 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      */
     app.route("/endpoints").get((req: express.Request, res: express.Response) => {
         res.type(Json).status(OK).json(getEndpoints());
+    });
+
+    // **** Application-level error handler
+    // Express 4 does not automatically forward rejected promises from async
+    // route handlers to its error-handling path (that behavior exists only in
+    // Express 5). The async handlers above therefore call next(error) on
+    // failure, and this middleware turns each handoff into a logged,
+    // controlled 500 JSON response instead of an unhandled rejection that
+    // could crash the process. It must be registered after all routes so it
+    // only receives forwarded errors, not unmatched requests.
+    app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+        const err = ensureError(error);
+        log_writer.write_error(
+            originator + ".error-handler",
+            `${req.method} ${req.url} failed: ${err.name}: ${err.message}`
+        );
+
+        if (res.headersSent) {
+            // The response already started; defer to Express's default
+            // finalhandler so the connection is closed with the failure.
+            next(err);
+            return;
+        }
+
+        res.type(Json).status(InternalServerError).json({
+            success: false,
+            message: `ERROR: ${req.method} ${req.url} failed: ${err.message}`
+        });
     });
 
     // Ping helpers live in this invocation's closure so every request is
