@@ -17,7 +17,7 @@ WORKDIR /app
 # Copy package files first (better layer caching)
 COPY package*.json ./
 
-# Install all dependencies (including devDependencies for native module compilation)
+# Install all dependencies (devDependencies are needed for the TypeScript build)
 RUN npm ci
 
 # Copy source code
@@ -25,6 +25,13 @@ COPY . .
 
 # Compile TypeScript
 RUN npx tsc
+
+# The build is done; strip dev-only packages (TypeScript, Jest, ESLint, ...) so
+# the runtime stage copies a production-only dependency tree. Pruning here —
+# before the COPY --from=builder — is what actually shrinks the final image.
+# Pruning in the runtime stage would only hide files behind whiteouts while the
+# full node_modules layer remains baked into the image.
+RUN npm prune --omit=dev
 
 # ------------------------------------------------
 # Stage 2: Production runtime
@@ -42,7 +49,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Copy pre-compiled node_modules from builder (includes native modules)
+# Copy the pruned (production-only) node_modules from the builder; any native
+# modules were already compiled in the builder stage
 COPY --from=builder /app/node_modules ./node_modules
 
 # Copy pre-compiled JavaScript from builder

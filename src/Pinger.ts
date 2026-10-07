@@ -10,7 +10,6 @@ import { Gauge, Histogram, Counter } from "prom-client";
 import type { Server } from "http";
 import type { NextFunction } from "express";
 import express from "express";
-import bodyParser from "body-parser";
 import { setupSwagger } from "./swagger";
 import { createRoutes } from "./routes/generalRoutes";
 import type { Session } from "net-ping";
@@ -122,7 +121,7 @@ export class Pinger implements dli.IPinger {
 
         // add CORS
         this.express.use(cors());
-        this.express.use(bodyParser.json());
+        this.express.use(express.json());
 
         // add a simple request logger
         this.express.use((req: express.Request, res: express.Response, next: NextFunction) => {
