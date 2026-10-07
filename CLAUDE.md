@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.3 (release codename: Cobalt Fox)
+**Version:** 1.11.4 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash

@@ -36,13 +36,26 @@ const DeviceSchema = z.object({
     deviceType: z.enum(["sensor", "server", "kiosk"]),
 });
 
-const ConfigSchema = z.object({
-    logLevel: z.enum(["debug", "info", "warn", "error"] as const),
-    intervalSecs: z.number().int().positive(),
-    devices: z.array(DeviceSchema),
-    lokiUrl: z.string().url().optional(),
-    lokiEnabled: z.boolean().optional(),
-});
+const ConfigSchema = z
+    .object({
+        logLevel: z.enum(["debug", "info", "warn", "error"] as const),
+        intervalSecs: z.number().int().positive(),
+        devices: z.array(DeviceSchema),
+        lokiUrl: z.string().url().optional(),
+        lokiEnabled: z.boolean().optional(),
+    })
+    .superRefine((config, ctx) => {
+        // Enabling Loki without a URL would silently disable the remote
+        // transport (the logger checks both values); reject the
+        // configuration instead of letting it fail at the logger boundary.
+        if (config.lokiEnabled === true && !config.lokiUrl) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["lokiUrl"],
+                message: "lokiUrl is required when lokiEnabled is true",
+            });
+        }
+    });
 
 /* ---------- Validation function ---------- */
 export type Device = z.infer<typeof DeviceSchema>;

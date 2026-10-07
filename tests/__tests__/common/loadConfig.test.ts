@@ -199,6 +199,47 @@ devices:
     });
 });
 
+describe("Loki configuration validation", () => {
+    const yamlForLoki = (lokiLines: string) => `
+logLevel: debug
+intervalSecs: 30
+devices:
+  - source: Test
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
+${lokiLines}`;
+
+    it("is valid when lokiEnabled is omitted", () => {
+        const result = validateConfig(yamlForLoki(""));
+        expect(result.ok).toBe(true);
+    });
+
+    it("is valid when lokiEnabled is false without a URL", () => {
+        const result = validateConfig(yamlForLoki("lokiEnabled: false"));
+        expect(result.ok).toBe(true);
+    });
+
+    it("is valid when lokiEnabled is false with a URL", () => {
+        const result = validateConfig(yamlForLoki("lokiEnabled: false\nlokiUrl: \"http://localhost:3100\""));
+        expect(result.ok).toBe(true);
+    });
+
+    it("is valid when lokiEnabled is true with a valid URL", () => {
+        const result = validateConfig(yamlForLoki("lokiEnabled: true\nlokiUrl: \"http://localhost:3100\""));
+        expect(result.ok).toBe(true);
+    });
+
+    it("is invalid when lokiEnabled is true without a URL, naming lokiUrl", () => {
+        const result = validateConfig(yamlForLoki("lokiEnabled: true"));
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.errors.join(" ")).toContain("lokiUrl is required when lokiEnabled is true");
+            expect(result.errors.join(" ")).toContain("lokiUrl");
+        }
+    });
+});
+
 describe("IPv4 validation", () => {
     const yamlForIp = (ip: string) => `
 logLevel: debug

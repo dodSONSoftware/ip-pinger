@@ -203,6 +203,23 @@ describe("/reload-config (restart-required settings)", () => {
 });
 
 describe("/write-config (validation)", () => {
+    it("rejects enabling Loki without a lokiUrl before persisting it", async () => {
+        const before = fs.readFileSync(CONFIG_FILE, "utf-8");
+
+        const { status, body } = await postConfig({
+            logLevel: "info",
+            intervalSecs: 30,
+            lokiEnabled: true,
+            devices: [deviceA],
+        });
+
+        expect(status).toBe(400);
+        expect(body.success).toBe(false);
+        expect(JSON.stringify(body.errors ?? "")).toContain("lokiUrl is required when lokiEnabled is true");
+        expect(updateConfig).not.toHaveBeenCalled();
+        expect(fs.readFileSync(CONFIG_FILE, "utf-8")).toBe(before);
+    });
+
     it("rejects invalid IPv4 addresses before persisting them", async () => {
         const before = fs.readFileSync(CONFIG_FILE, "utf-8");
 
