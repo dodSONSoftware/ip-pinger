@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.6.
+**Release:** Cobalt Fox — version 1.11.7.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -139,7 +139,7 @@ Settings split into two groups:
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `pinged` | Gauge | `ipAddress`, `deviceName`, `deviceType` | 1 if device responds, 0 otherwise |
-| `pinged_roundtrip_ms` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Latest round-trip time in milliseconds |
+| `pinged_roundtrip_ms` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Latest round-trip time in milliseconds (updated on successful pings only; keeps the last successful value while the device is down) |
 | `pinged_last_success_timestamp` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Unix timestamp of last successful ping |
 | `pinged_last_failure_timestamp` | Gauge | `ipAddress`, `deviceName`, `deviceType` | Unix timestamp of last failed ping |
 
@@ -147,7 +147,7 @@ Settings split into two groups:
 
 | Metric | Type | Labels | Buckets |
 |--------|------|--------|---------|
-| `pinged_roundtrip_seconds` | Histogram | `ipAddress`, `deviceName`, `deviceType` | 1ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1000ms (+Inf) |
+| `pinged_roundtrip_seconds` | Histogram | `ipAddress`, `deviceName`, `deviceType` | 1ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1000ms (+Inf). Records successful pings only — a failed ping produces no latency observation |
 
 ### System Metrics
 

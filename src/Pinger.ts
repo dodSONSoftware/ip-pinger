@@ -454,24 +454,31 @@ export class Pinger implements dli.IPinger {
                     );
                 }
 
-                // Ensure roundTripMs is an integer (no decimal places)
-                const roundTripMsInt = Math.trunc(roundTripMs);
+                // Latency only exists when the ping succeeded. A failed ping
+                // carries roundTripMs of 0, and recording it would publish a
+                // fake zero-latency observation that corrupts the histogram
+                // count/sum (and derived averages). On failure the roundtrip
+                // gauge keeps its most recent successful value.
+                if (isAlive) {
+                    // Ensure roundTripMs is an integer (no decimal places)
+                    const roundTripMsInt = Math.trunc(roundTripMs);
 
-                // Update per-device roundtrip gauge
-                if (this.prometheus_Pinger_Roundtrip_Gauge) {
-                    this.prometheus_Pinger_Roundtrip_Gauge.set(
-                        { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
-                        roundTripMsInt
-                    );
-                }
+                    // Update per-device roundtrip gauge
+                    if (this.prometheus_Pinger_Roundtrip_Gauge) {
+                        this.prometheus_Pinger_Roundtrip_Gauge.set(
+                            { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
+                            roundTripMsInt
+                        );
+                    }
 
-                // Update per-device roundtrip histogram
-                const roundTripSeconds = roundTripMsInt / 1000;
-                if (this.prometheus_Pinger_Roundtrip_Histogram) {
-                    this.prometheus_Pinger_Roundtrip_Histogram.observe(
-                        { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
-                        roundTripSeconds
-                    );
+                    // Update per-device roundtrip histogram
+                    const roundTripSeconds = roundTripMsInt / 1000;
+                    if (this.prometheus_Pinger_Roundtrip_Histogram) {
+                        this.prometheus_Pinger_Roundtrip_Histogram.observe(
+                            { ipAddress: `${ipAddress}`, deviceName: `${deviceName}`, deviceType: `${deviceType}` },
+                            roundTripSeconds
+                        );
+                    }
                 }
 
                 // Update timestamps based on result

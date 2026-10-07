@@ -303,3 +303,100 @@ describe("Pinger.updateConfig (Prometheus history preservation)", () => {
         await runPromise;
     }, 15000);
 });
+
+// Re-fetch the session mock created by the most recent Pinger construction
+function latestSession(): { pingHost: jest.Mock } {
+    const netPing = jest.requireMock("net-ping") as { createSession: { mock: { results: Array<{ value: { pingHost: jest.Mock } }> } } };
+    return netPing.createSession.mock.results.at(-1)!.value;
+}
+
+describe("Pinger.run() (latency metrics only record successful pings)", () => {
+    it("a successful ping updates the availability gauge, roundtrip gauge and records one histogram observation", async () => {
+        // short interval so the run() loop exits promptly after close()
+        const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 5 }));
+        const session = latestSession();
+        session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            const sent = new Date();
+            callback(null, host, sent, new Date(sent.getTime() + 20)); // 20ms roundtrip
+        });
+
+        const runPromise = pinger.run();
+        await waitFor(async () => {
+            const output = await register.metrics();
+            return output.match(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m")) !== null;
+        });
+
+        const output = await register.metrics();
+        // availability: up
+        expect(output).toMatch(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m"));
+        // roundtrip gauge in milliseconds
+        expect(output).toMatch(new RegExp(`^pinged_roundtrip_ms\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 20$`, "m"));
+        // one histogram observation adding 20ms (0.020s) to the sum
+        expect(output).toMatch(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m"));
+        expect(output).toMatch(new RegExp(`^pinged_roundtrip_seconds_sum\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 0\\.02$`, "m"));
+
+        await pinger.close();
+        await runPromise;
+    }, 15000);
+
+    it("a failed ping updates the availability gauge but adds no histogram observation", async () => {
+        // short interval so the run() loop exits promptly after close()
+        const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 5 }));
+        const session = latestSession();
+        session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            callback(new Error("Request timed out"), host, new Date(), new Date());
+        });
+
+        const runPromise = pinger.run();
+        await waitFor(async () => {
+            const output = await register.metrics();
+            return output.match(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 0$`, "m")) !== null;
+        });
+
+        const output = await register.metrics();
+        // availability: down
+        expect(output).toMatch(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 0$`, "m"));
+        // the failure is counted under its error type...
+        expect(output).toMatch(new RegExp(`^pinged_errors_total\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*errorType="timeout"\\} 1$`, "m"));
+        // ...but produced no latency sample at all: no histogram count/sum series for the device
+        expect(output).not.toMatch(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress="${deviceA.ipAddress}"`, "m"));
+        expect(output).not.toMatch(new RegExp(`^pinged_roundtrip_seconds_sum\\{[^}]*ipAddress="${deviceA.ipAddress}"`, "m"));
+        expect(output).not.toMatch(new RegExp(`^pinged_roundtrip_ms\\{[^}]*ipAddress="${deviceA.ipAddress}"`, "m"));
+
+        await pinger.close();
+        await runPromise;
+    }, 15000);
+
+    it("after a successful ping, a failed ping does not add a second histogram observation", async () => {
+        // short interval so the follow-up (failing) cycle starts promptly
+        // and the run() loop exits promptly after close()
+        const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 2 }));
+        const session = latestSession();
+        let attempts = 0;
+        session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            attempts++;
+            if (attempts === 1) {
+                const sent = new Date();
+                callback(null, host, sent, new Date(sent.getTime() + 20)); // first cycle: success
+            } else {
+                callback(new Error("Request timed out"), host, new Date(), new Date()); // later cycles: failure
+            }
+        });
+
+        const runPromise = pinger.run();
+        // wait until a failure has been recorded (the gauge flips to 0 after
+        // the initial success)
+        await waitFor(async () => {
+            const output = await register.metrics();
+            return output.match(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 0$`, "m")) !== null;
+        });
+
+        const output = await register.metrics();
+        // exactly one observation, from the single successful ping
+        expect(output).toMatch(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m"));
+        expect(output).toMatch(new RegExp(`^pinged_roundtrip_seconds_sum\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 0\\.02$`, "m"));
+
+        await pinger.close();
+        await runPromise;
+    }, 20000);
+});
