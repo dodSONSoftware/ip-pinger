@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.8.
+**Release:** Cobalt Fox — version 1.11.9.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -62,11 +62,19 @@ npm run dev
 
 ```bash
 docker build -t ip-pinger .
-docker run -p 3300:3300 \
-  --cap-add=NET_RAW --cap-add=NET_ADMIN \
-  -v $(pwd)/src/config.yml:/app/config.yml \
+
+docker run --rm \
+  -p 3300:3300 \
+  --cap-add=NET_RAW \
+  --cap-add=NET_ADMIN \
+  -e CONFIG_PATH=/app/config.yml \
+  -v "$(pwd)/src/config.yml:/app/config.yml:ro" \
   ip-pinger
 ```
+
+The `CONFIG_PATH` environment variable is required at startup (the application
+loads its configuration from the path it names), so it must be passed
+explicitly — the same value the volume is mounted at.
 
 ## Configuration
 
