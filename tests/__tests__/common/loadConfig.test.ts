@@ -13,10 +13,25 @@ describe("loadConfig", () => {
     });
 
     it("should throw error if CONFIG_PATH is not set", () => {
-        // The CONFIG_PATH check happens at module load time, so we can't
-        // dynamically change it. This test verifies the error message format
-        // by checking against what would happen if the env var is missing.
-        expect(process.env.CONFIG_PATH).toBeDefined();
+        // The guard runs at module load time: delete the env var and load a
+        // fresh copy of src/common in an isolated registry to exercise it.
+        const originalConfigPath = process.env.CONFIG_PATH;
+        try {
+            delete process.env.CONFIG_PATH;
+            jest.resetModules();
+
+            expect(() => {
+                jest.isolateModules(() => {
+                    require("../../../src/common");
+                });
+            }).toThrow("CONFIG_PATH environment variable is required but not set.");
+        } finally {
+            // Restore the env var and module registry for the remaining tests
+            if (originalConfigPath !== undefined) {
+                process.env.CONFIG_PATH = originalConfigPath;
+            }
+            jest.resetModules();
+        }
     });
 
     it("should return config and raw text when valid YAML is provided", () => {
