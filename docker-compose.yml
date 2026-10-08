@@ -10,9 +10,9 @@ services:
     cap_add:
       - NET_RAW
     environment:
-      - CONFIG_PATH=/app/config.yml
+      - CONFIG_PATH=/app/config/config.yml
     volumes:
-      - /mnt/ip-pinger-data/config.yml:/app/config.yml
+      - /mnt/ip-pinger-data/config:/app/config:rw
     healthcheck:
       test: [ "CMD", "curl", "-sf", "http://localhost:3300/health" ]
       interval: 30s

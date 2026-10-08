@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.23 (release codename: Cobalt Fox)
+**Version:** 1.11.24 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -190,3 +190,4 @@ npm run test:coverage  # Run with coverage report
 - Single-threaded event loop (suitable for periodic pinging)
 - No automatic device discovery (must configure manually)
 - Configuration hot-reload requires valid YAML (validation occurs before applying)
+- **Docker config mount requires a directory owned by uid 1000**: the container runs as `node` (uid 1000), and `POST /write-config` persists configuration atomically (temp file + rename). The host config path must be a **directory** mount owned by (or writable by) uid 1000 — e.g. `mkdir -p /mnt/ip-pinger-data/config && chown 1000:1000 /mnt/ip-pinger-data/config`. A single-file bind mount always fails with `EBUSY` (a rename cannot replace an active bind-mount point), and a `root`-owned directory fails with `EACCES`

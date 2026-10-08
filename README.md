@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.23.
+**Release:** Cobalt Fox — version 1.11.24.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -66,10 +66,31 @@ docker build -t ip-pinger .
 docker run --rm \
   -p 3300:3300 \
   --cap-add=NET_RAW \
-  -e CONFIG_PATH=/app/config.yml \
-  -v "$(pwd)/src/config.yml:/app/config.yml" \
+  -e CONFIG_PATH=/app/config/config.yml \
+  -v "$(pwd)/config-data:/app/config" \
   ip-pinger
 ```
+
+Before the first run, prepare a host-side configuration **directory** that the
+container's non-root `node` user (uid 1000) can write to:
+
+```bash
+mkdir -p config-data
+cp src/config.yml config-data/          # initial configuration
+chown 1000:1000 config-data             # or: chmod 777 config-data
+```
+
+Two requirements here are enforced by the kernel, not the application, and
+`POST /write-config` fails at runtime if either is missing:
+
+- **Mount a directory, not a single file.** The app persists configuration
+  atomically (write a temp file, then rename over the target). Linux never
+  allows a rename to replace an active bind-mount point, so a file mount
+  (`-v config-data/config.yml:/app/config/config.yml`) always fails with
+  `EBUSY`.
+- **The directory must be owned by (or writable by) uid 1000.** The image
+  runs `USER node`; a `root`-owned directory is read-only to the container,
+  and `/write-config` fails with `EACCES`.
 
 The `CONFIG_PATH` environment variable is required at startup (the application
 loads its configuration from the path it names), so it must be passed
@@ -199,6 +220,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.24 | Make the Docker config mount work with `POST /write-config`: the host config is now a **directory** owned by uid 1000 (mounted at `/app/config`), because atomic temp-file+rename persistence can never replace a single-file bind mount (`EBUSY`) or write into a `root`-owned directory (`EACCES`); `docker-refresh.sh` pre-creates and chowns the config directory before startup and blocks on `docker compose up --wait` until the `/health` check passes |
 | v1.11.23 | Apply hot-reloaded configuration at the cycle boundary and wake the run loop on a config change or `close()`: a new `intervalSecs` takes effect without waiting out the old interval, and shutdown stops the loop immediately instead of sleeping out the cycle |
 | v1.11.22 | Validate the `/ping/:target` target as an IPv4 address before pinging: invalid targets are rejected with a 400 using the same shared schema as configured device addresses, instead of reaching net-ping |
 | v1.11.21 | Stop advertising a deployment-specific server address in the OpenAPI document: the hard-coded `servers` URL is removed so Swagger UI targets the origin serving `/swagger` |
