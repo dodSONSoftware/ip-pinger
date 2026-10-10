@@ -98,6 +98,17 @@ async function postConfig(payload: Record<string, unknown>): Promise<{ status: n
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
+// Raw-body variant: posts the string as-is so malformed JSON reaches the
+// body parser instead of being stringified into a valid payload.
+async function postRaw(body: string): Promise<{ status: number; body: Record<string, unknown> }> {
+    const res = await fetch(baseUrl + "/write-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
+
 function appliedConfig(): IConfig {
     return updateConfig.mock.calls[0][0] as IConfig;
 }
@@ -253,6 +264,22 @@ describe("/write-config (validation)", () => {
 
         expect(status).toBe(400);
         expect(body.success).toBe(false);
+        expect(updateConfig).not.toHaveBeenCalled();
+        expect(fs.readFileSync(CONFIG_FILE, "utf-8")).toBe(before);
+    });
+});
+
+describe("/write-config (malformed JSON body)", () => {
+    it("answers a malformed JSON body with 400 instead of 500", async () => {
+        const before = fs.readFileSync(CONFIG_FILE, "utf-8");
+
+        const { status, body } = await postRaw('{"logLevel": "info",');
+
+        // The body-parser message fragment varies by Node version, so only
+        // assert on the middleware-owned prefix.
+        expect(status).toBe(400);
+        expect(body.success).toBe(false);
+        expect(String(body.message)).toContain("ERROR: POST /write-config failed");
         expect(updateConfig).not.toHaveBeenCalled();
         expect(fs.readFileSync(CONFIG_FILE, "utf-8")).toBe(before);
     });

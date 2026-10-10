@@ -748,15 +748,22 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     // route handlers to its error-handling path (that behavior exists only in
     // Express 5). The async handlers above therefore call next(error) on
     // failure, and this middleware turns each handoff into a logged,
-    // controlled 500 JSON response instead of an unhandled rejection that
+    // controlled JSON response instead of an unhandled rejection that
     // could crash the process. It must be registered after all routes so it
     // only receives forwarded errors, not unmatched requests.
     app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
         const err = ensureError(error);
-        log_writer.write_error(
-            originator + ".error-handler",
-            `${req.method} ${req.url} failed: ${err.name}: ${err.message}`
-        );
+
+        // Body-parser failures (e.g., malformed JSON -> 400, payload over
+        // the default 100kb limit -> 413) carry their HTTP status on the
+        // error; respect it so client errors are not answered as a server
+        // failure. Anything without an integer 400-599 status (e.g., a
+        // rejecting route handler) is a server failure and keeps the 500.
+        const errWithStatus = err as Error & { status?: unknown; statusCode?: unknown };
+        const carried = Number(errWithStatus.status ?? errWithStatus.statusCode);
+        const httpStatus = Number.isInteger(carried) && carried >= _400 && carried <= 599
+            ? carried
+            : InternalServerError;
 
         if (res.headersSent) {
             // The response already started; defer to Express's default
@@ -765,7 +772,20 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             return;
         }
 
-        res.type(Json).status(InternalServerError).json({
+        // A forwarded 4xx is the caller's fault, not a server failure; log warn.
+        if (httpStatus < InternalServerError) {
+            log_writer.write_warn(
+                originator + ".error-handler",
+                `${req.method} ${req.url} failed: ${err.name}: ${err.message}`
+            );
+        } else {
+            log_writer.write_error(
+                originator + ".error-handler",
+                `${req.method} ${req.url} failed: ${err.name}: ${err.message}`
+            );
+        }
+
+        res.type(Json).status(httpStatus).json({
             success: false,
             message: `ERROR: ${req.method} ${req.url} failed: ${err.message}`
         });
