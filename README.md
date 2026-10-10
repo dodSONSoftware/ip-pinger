@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.24.
+**Release:** Cobalt Fox — version 1.11.25.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -64,7 +64,7 @@ npm run dev
 docker build -t ip-pinger .
 
 docker run --rm \
-  -p 3300:3300 \
+  -p 32001:32001 \
   --cap-add=NET_RAW \
   -e CONFIG_PATH=/app/config/config.yml \
   -v "$(pwd)/config-data:/app/config" \
@@ -115,7 +115,7 @@ devices:
     deviceType: sensor|server|kiosk
 ```
 
-The HTTP API (including `/metrics`) always listens on the fixed port **3300**,
+The HTTP API (including `/metrics`) always listens on the fixed port **32001**,
 which the Docker deployment and health checks are bound to. It is not a
 configuration option.
 
@@ -220,6 +220,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.25 | Align the fixed API port to **32001** everywhere it is referenced: the `API_PORT` constant, the Dockerfile `EXPOSE`/healthcheck, `docker-compose.yml` port mapping and healthcheck, the README/CLAUDE port documentation, the `/about` endpoint description, and the port-related tests |
 | v1.11.24 | Make the Docker config mount work with `POST /write-config`: the host config is now a **directory** owned by uid 1000 (mounted at `/app/config`), because atomic temp-file+rename persistence can never replace a single-file bind mount (`EBUSY`) or write into a `root`-owned directory (`EACCES`); `docker-refresh.sh` pre-creates and chowns the config directory before startup and blocks on `docker compose up --wait` until the `/health` check passes |
 | v1.11.23 | Apply hot-reloaded configuration at the cycle boundary and wake the run loop on a config change or `close()`: a new `intervalSecs` takes effect without waiting out the old interval, and shutdown stops the loop immediately instead of sleeping out the cycle |
 | v1.11.22 | Validate the `/ping/:target` target as an IPv4 address before pinging: invalid targets are rejected with a 400 using the same shared schema as configured device addresses, instead of reaching net-ping |

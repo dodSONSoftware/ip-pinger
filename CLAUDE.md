@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.24 (release codename: Cobalt Fox)
+**Version:** 1.11.25 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -43,7 +43,7 @@ npm run lint    # Run ESLint
 ```
 
 **Architecture:**
-- Single Express server on the fixed port `API_PORT` (3300, defined in `src/common.ts`); the Docker port mapping and health checks are bound to it, so it is not a configuration option
+- Single Express server on the fixed port `API_PORT` (32001, defined in `src/common.ts`); the Docker port mapping and health checks are bound to it, so it is not a configuration option
 - Scheduled ping loop using net-ping library
 - Prometheus gauge/histogram metrics for ping status and timing
 - YAML configuration with Zod validation
@@ -170,7 +170,7 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 
 ## Ports
 
-- **HTTP API (includes metrics)**: Fixed port 3300 (`API_PORT` constant in `src/common.ts`; not configurable at runtime)
+- **HTTP API (includes metrics)**: Fixed port 32001 (`API_PORT` constant in `src/common.ts`; not configurable at runtime)
 
 ## Testing
 

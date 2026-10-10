@@ -394,21 +394,21 @@ describe("Pinger.start() (API listener startup)", () => {
         expect(api_server.listening).toBe(true);
     });
 
-    it("starts on the fixed API_PORT (3300) by default", async () => {
-        expect(API_PORT).toBe(3300);
+    it("starts on the fixed API_PORT (32001) by default", async () => {
+        expect(API_PORT).toBe(32001);
 
-        // Construct without a test-specific port: the default must be 3300.
-        // If the port is free the server binds 3300; if it is occupied, the
+        // Construct without a test-specific port: the default must be 32001.
+        // If the port is free the server binds 32001; if it is occupied, the
         // bind error names the port it attempted.
         const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date());
         pingers.push(pinger);
         try {
             await pinger.start();
             const api_server = (pinger as unknown as { api_server: http.Server }).api_server;
-            expect((api_server.address() as { port: number }).port).toBe(3300);
+            expect((api_server.address() as { port: number }).port).toBe(32001);
         } catch (error) {
             expect(String(error)).toContain("EADDRINUSE");
-            expect(String(error)).toContain("3300");
+            expect(String(error)).toContain("32001");
         }
     });
 

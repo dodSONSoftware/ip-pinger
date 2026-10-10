@@ -186,7 +186,7 @@ export const endpointsInfo: EndpointsInfo = {
             name: "Write Config",
             route: "/write-config",
             verb: "POST",
-            requestBody: "JSON object with keys: logLevel (string), intervalSecs (positive integer), devices (array of objects with source, ipAddress, deviceType), lokiUrl (string, optional), lokiEnabled (boolean, optional). The API port is fixed at 3300 and is not configurable.",
+            requestBody: "JSON object with keys: logLevel (string), intervalSecs (positive integer), devices (array of objects with source, ipAddress, deviceType), lokiUrl (string, optional), lokiEnabled (boolean, optional). The API port is fixed at 32001 and is not configurable.",
             responseBody: "{ success: boolean, restartRequired: boolean, message: string }",
             description: "Updates the configuration and reloads it. Hot-reloadable settings (intervalSecs, devices) apply immediately; logLevel, lokiUrl, and lokiEnabled require a process restart."
         },

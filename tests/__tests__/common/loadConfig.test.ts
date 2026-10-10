@@ -197,7 +197,7 @@ devices:
     it("ignores unknown configuration keys such as the removed apiPort", () => {
         const yaml = `
 logLevel: debug
-apiPort: 3301
+apiPort: 9999
 intervalSecs: 30
 devices:
   - source: Test

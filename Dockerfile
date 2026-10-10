@@ -57,7 +57,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
 # Expose the application ports
-EXPOSE 3300
+EXPOSE 32001
 
 # Grant raw socket capabilities to Node.js binary (Linux capability approach)
 # This allows raw sockets without running as root
@@ -68,7 +68,7 @@ USER node
 
 # Health check - probe the health endpoint
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -sf http://localhost:3300/health || exit 1
+  CMD curl -sf http://localhost:32001/health || exit 1
 
 # Command to run the application
 CMD ["node", "dist/index.js"]

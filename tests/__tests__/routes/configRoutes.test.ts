@@ -436,13 +436,13 @@ describe("removed apiPort option", () => {
     it("ignores apiPort in write-config payloads and does not report a restart", async () => {
         const { status, body } = await postConfig({
             logLevel: "info",
-            apiPort: 3301,
+            apiPort: 9999,
             intervalSecs: 30,
             lokiEnabled: false,
             devices: [deviceA],
         });
 
-        // The fixed API port (3300) cannot be changed at runtime, so the
+        // The fixed API port (32001) cannot be changed at runtime, so the
         // obsolete field must be dropped, not persisted as a mismatch source
         expect(status).toBe(200);
         expect(body.success).toBe(true);

@@ -26,7 +26,7 @@ export function getConfigPath(): string {
  * checks) is bound to this port, so the listener port is an application
  * constant rather than a runtime configuration setting.
  */
-export const API_PORT = 3300;
+export const API_PORT = 32001;
 
 /* ---------- Schema ---------- */
 
