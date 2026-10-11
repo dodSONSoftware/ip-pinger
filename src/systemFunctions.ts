@@ -37,9 +37,15 @@ export function ensureError(value: unknown): Error {
  * or the complete new content — a failed write can never truncate the
  * live file mid-write.
  */
+// Monotonic per-process counter so two temp files can never share a name —
+// a fixed `${filename}.tmp` would let a second writer (another process
+// against the same mount) overwrite the first writer's temp file before its
+// rename.
+let temp_file_counter = 0;
+
 export function write_file(filename: string, content: string, logger?: ILogger): { success: boolean; error?: string } {
     // Same directory as the target so the rename stays on one filesystem
-    const temporaryFilename = `${filename}.tmp`;
+    const temporaryFilename = `${filename}.${process.pid}.${temp_file_counter++}.tmp`;
     try {
         fs.writeFileSync(temporaryFilename, content);
         fs.renameSync(temporaryFilename, filename);
