@@ -67,7 +67,9 @@ describe("Pinger first configuration reload (stale Prometheus series)", () => {
         // First configuration update: drop device B
         pinger.updateConfig(makeConfig([deviceA]), "updated config");
 
-        // Cleanup rebuilds the device gauges; record the kept device on the new gauge
+        // The metric objects are process-lived (no rebuild on reload) — only
+        // device B's series were removed — so record the kept device on the
+        // same gauge
         getUpGauge().set(
             { ipAddress: deviceA.ipAddress, deviceName: deviceA.source, deviceType: deviceA.deviceType },
             1
