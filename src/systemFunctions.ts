@@ -94,28 +94,6 @@ export function read_file_json(filename: string, logger?: ILogger): Map<string, 
 
 // ******** enum conversion functions
 
-export function convert_from_log_level_string_to_enum(logLevelString: string): LogLevel {
-    let value = LogLevel.None;
-
-    // TODO: convert this to a if.elif.elif.... and use the [ STRING.startswith() ] function
-
-    switch (logLevelString.toLowerCase()) {
-        case "error":
-            value = LogLevel.Error;
-            break;
-        case "warn":
-            value = LogLevel.Warn;
-            break;
-        case "info":
-            value = LogLevel.Info;
-            break;
-        case "debug":
-            value = LogLevel.Debug;
-            break;
-    }
-    return value;
-}
-
 export function convert_from_log_level_enum_to_string(log_level: LogLevel): string {
     let value = "None";
 
@@ -136,35 +114,7 @@ export function convert_from_log_level_enum_to_string(log_level: LogLevel): stri
     return value;
 }
 
-// **** sleep functions
-
-export function sleep(delayMS: number): Promise<void> {
-    if (delayMS === 0) {
-        return Promise.resolve();
-    }
-    return new Promise((resolve) => setTimeout(resolve, delayMS));
-}
-
-export function sleep_from_start(delayMS: number, start: Date): Promise<void> {
-    const elapsed = new Date().getTime() - start.getTime();
-    const remaining = delayMS - elapsed;
-    if (remaining <= 0) {
-        return Promise.resolve(); // Already past the deadline
-    }
-    return sleep(remaining);
-}
-
-// **** general functions
-
-export function randomInt(min: number, max: number): number {
-    return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
 // **** time-related functions
-
-export function get_timestamp_iso(): string {
-    return new Date().toISOString().slice(0, -1);
-}
 
 export function get_timestamp(include_ms: boolean): string {
     // init
@@ -203,10 +153,6 @@ export function elapsed_time(start_time: Date | undefined): string {
     }
 
     return formatElapsedTime(Date.now() - start_time_value);
-}
-
-export function elapsed_time_seconds(start_date: Date): number {
-    return (Date.now() - start_date.valueOf()) / 1000;
 }
 
 export function formatElapsedTime(ms: number): string {

@@ -20,13 +20,11 @@ import { register } from "prom-client";
 
 export const OK = 200;
 export const _400 = 400;
-export const _418 = 418;
 export const InternalServerError = 500;
 export const ServiceUnavailable = 503;
 
 // **** MIME Types
 
-export const Text = "text/plain";
 export const Json = "application/json";
 
 // **** STATIC Information
@@ -244,11 +242,11 @@ interface PingResult {
 export function createRoutes(app: express.Application, config: IConfig, config_str: string, pinger: IPinger, logger: ILogger, startDate: Date) {
     // **** initialize
     // Route state is owned by this invocation: each createRoutes() call —
-    // and therefore each Pinger instance — carries its own configuration,
-    // pinger, logger, startup baseline, and about payload, so registering
-    // routes for a second instance can never rebind routes registered for
-    // a first one.
-    let configuration = config_str;
+    // and therefore each Pinger instance — carries its own configuration
+    // object, pinger, logger, startup baseline, and about payload, so
+    // registering routes for a second instance can never rebind routes
+    // registered for a first one. The raw config text lives on the Pinger
+    // itself (updateConfig), not in this closure.
     let configurationObj = config;
     const ip_pinger = pinger;
     const log_writer = logger;
@@ -528,7 +526,6 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 const [newConfig, config_text] = loadConfig();
 
                 // Update internal route state (persisted configuration)
-                configuration = config_text;
                 configurationObj = newConfig;
 
                 // Compare startup-owned settings against the values still active.
@@ -615,7 +612,6 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             const [newConfig, rawText] = loadConfig();
 
             // Update internal route state (persisted configuration)
-            configuration = rawText;
             configurationObj = newConfig;
 
             // Compare startup-owned settings against the values still active
