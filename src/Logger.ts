@@ -204,9 +204,9 @@ export class Logger implements ILogger {
         // create header
         let header = "";
         if (elapsed_time_start_date === null) {
-            header = `[${get_timestamp(false)}][${elapsed_time(new Date(Date.now()))}][${convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
+            header = `[${get_timestamp()}][${elapsed_time(new Date(Date.now()))}][${convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
         } else {
-            header = `[${get_timestamp(false)}][${elapsed_time(elapsed_time_start_date)}][${convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
+            header = `[${get_timestamp()}][${elapsed_time(elapsed_time_start_date)}][${convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
         }
 
         // create message

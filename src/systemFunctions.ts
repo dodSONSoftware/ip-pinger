@@ -68,8 +68,8 @@ export function write_file(filename: string, content: string, logger?: ILogger):
 
 export function read_file(filename: string, logger?: ILogger): string | null {
     try {
-        const buffer = fs.readFileSync(filename, "utf8");
-        return buffer.toString();
+        // The utf8 encoding already yields a string — nothing to convert
+        return fs.readFileSync(filename, "utf8");
     } catch (error) {
         const err = ensureError(error);
         logger?.write_error("systemFunctions.read_file", `Failed to read file "${filename}": ${err.message}`);
@@ -116,7 +116,7 @@ export function convert_from_log_level_enum_to_string(log_level: LogLevel): stri
 
 // **** time-related functions
 
-export function get_timestamp(include_ms: boolean): string {
+export function get_timestamp(): string {
     // init
     const dt = new Date();
 
@@ -127,15 +127,9 @@ export function get_timestamp(include_ms: boolean): string {
     const h = String(dt.getHours()).padStart(2, "0");
     const m = String(dt.getMinutes()).padStart(2, "0");
     const s = String(dt.getSeconds()).padStart(2, "0");
-    const ms = String(dt.getMilliseconds()).padStart(3, "0");
 
     // get the timestamp
-    let dude = `${year}-${month}-${day} ${h}:${m}:${s}`;
-
-    // check if including milliseconds
-    if (include_ms) {
-        dude = `${dude}.${ms}`;
-    }
+    const dude = `${year}-${month}-${day} ${h}:${m}:${s}`;
 
     // return results
     return dude;
