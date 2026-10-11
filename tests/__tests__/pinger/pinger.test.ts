@@ -700,6 +700,171 @@ describe("Pinger.updateConfig (Prometheus history preservation)", () => {
     }, 15000);
 });
 
+describe("Pinger (application-level metrics)", () => {
+    // The 'error' listener the pinger registered on the most recent
+    // session mock (the helpers inside the fatal-session-error describe are
+    // scoped there, so this describe keeps its own access path)
+    function sessionErrorListener(): (error: Error) => void {
+        const netPing = jest.requireMock("net-ping") as {
+            createSession: { mock: { results: Array<{ value: { on: jest.Mock } }> } };
+        };
+        const session = netPing.createSession.mock.results.at(-1)!.value;
+        const call = session.on.mock.calls.find((c) => c[0] === "error");
+        if (!call) {
+            throw new Error("no 'error' listener registered on the net-ping session mock");
+        }
+        return call[1] as (error: Error) => void;
+    }
+
+    it("exposes pinger_operational as 1 while the pinger can run cycles", async () => {
+        const pinger = await createPinger(makeConfig([deviceA]));
+
+        const output = await register.metrics();
+        expect(output).toMatch(/^pinger_operational 1$/m);
+
+        await pinger.close();
+    });
+
+    it("reports pinger_operational 0 once the net-ping session has failed", async () => {
+        const pinger = await createPinger(makeConfig([deviceA]));
+
+        sessionErrorListener()(new Error("ICMP socket failed: ECONNRESET"));
+
+        expect(pinger.isOperational()).toBe(false);
+        const output = await register.metrics();
+        expect(output).toMatch(/^pinger_operational 0$/m);
+
+        await pinger.close();
+    });
+
+    it("records pinger_last_cycle_timestamp when a cycle completes", async () => {
+        const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 5 }));
+
+        const runPromise = pinger.run();
+        await waitFor(async () => {
+            const output = await register.metrics();
+            return output.match(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m")) !== null;
+        });
+
+        const output = await register.metrics();
+        const match = output.match(/^pinger_last_cycle_timestamp (\d+)$/m);
+        expect(match).not.toBeNull();
+        // the cycle just completed: the timestamp is close to now
+        expect(Math.abs(Date.now() / 1000 - Number(match![1]))).toBeLessThan(60);
+
+        await pinger.close();
+        await runPromise;
+    }, 15000);
+
+    it("baselines the configuration metrics from the boot configuration", async () => {
+        const pinger = await createPinger(makeConfig([deviceA, deviceB], { intervalSecs: 30 }));
+
+        const output = await register.metrics();
+        expect(output).toMatch(/^pinger_config_devices 2$/m);
+        expect(output).toMatch(/^pinger_config_pending_update 0$/m);
+        expect(output).toMatch(/^pinger_config_loaded_timestamp \d+$/m);
+
+        await pinger.close();
+    });
+
+    it("updates the configuration metrics when a new configuration is applied", async () => {
+        const pinger = await createPinger(makeConfig([deviceA, deviceB], { intervalSecs: 30 }));
+
+        pinger.updateConfig(makeConfig([deviceA, deviceB, { source: "Device C", ipAddress: "10.0.0.3", deviceType: "kiosk" }]), "add device C");
+
+        const output = await register.metrics();
+        expect(output).toMatch(/^pinger_config_devices 3$/m);
+        expect(output).toMatch(/^pinger_config_pending_update 0$/m);
+
+        await pinger.close();
+    });
+
+    it("reports pinger_config_pending_update 1 while an update waits for the cycle boundary, 0 after it applies", async () => {
+        const pinger = await createPinger(makeConfig([deviceA, deviceB], { intervalSecs: 60 }));
+        const session = latestSession();
+        let staleB: ((error: Error | null, target: string, sent: Date, received: Date) => void) | undefined;
+        session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            if (host === deviceB.ipAddress) {
+                staleB = callback;
+                return;
+            }
+            const sent = new Date();
+            callback(null, host, sent, new Date(sent.getTime() + 5));
+        });
+
+        const runPromise = pinger.run();
+        await waitFor(() => staleB !== undefined);
+
+        pinger.updateConfig(makeConfig([deviceA], { intervalSecs: 1 }), "remove device B");
+
+        // the update is held pending while the cycle is still in flight
+        let output = await register.metrics();
+        expect(output).toMatch(/^pinger_config_pending_update 1$/m);
+
+        // let the stale B ping finish: the boundary then applies the update
+        staleB!(null, deviceB.ipAddress, new Date(), new Date());
+
+        await waitFor(async () => {
+            const output = await register.metrics();
+            return output.match(/^pinger_config_pending_update 0$/m) !== null;
+        });
+        output = await register.metrics();
+        expect(output).toMatch(/^pinger_config_devices 1$/m);
+
+        await pinger.close();
+        await runPromise;
+    }, 15000);
+
+    it("counts configuration reload attempts by result", async () => {
+        const pinger = await createPinger(makeConfig([deviceA]));
+
+        pinger.recordConfigReload("success");
+        pinger.recordConfigReload("rejected");
+        pinger.recordConfigReload("rejected");
+
+        const output = await register.metrics();
+        expect(output).toMatch(/^pinger_config_reload_total\{result="success"\} 1$/m);
+        expect(output).toMatch(/^pinger_config_reload_total\{result="rejected"\} 2$/m);
+
+        await pinger.close();
+    });
+
+    it("counts on-demand /ping requests by result", async () => {
+        const pinger = await createPinger(makeConfig([deviceA]));
+
+        pinger.recordAdhocPing("ok");
+        pinger.recordAdhocPing("down");
+        pinger.recordAdhocPing("invalid_target");
+
+        const output = await register.metrics();
+        expect(output).toMatch(/^pinger_adhoc_ping_total\{result="ok"\} 1$/m);
+        expect(output).toMatch(/^pinger_adhoc_ping_total\{result="down"\} 1$/m);
+        expect(output).toMatch(/^pinger_adhoc_ping_total\{result="invalid_target"\} 1$/m);
+
+        await pinger.close();
+    });
+
+    it("observes pinger_cycle_delay_seconds for the inter-cycle wait", async () => {
+        const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 1 }));
+
+        const runPromise = pinger.run();
+        // the settle wait (no cycle anchor) is not observed; the first
+        // interval-elapsed wait ends when the second cycle starts
+        await waitFor(async () => {
+            const output = await register.metrics();
+            return output.match(/^pinger_cycle_delay_seconds_count\{reason="interval"\} [1-9]/m) !== null;
+        });
+
+        const output = await register.metrics();
+        // a 1-second timer must not be late by more than a second
+        const sum = Number(output.match(/^pinger_cycle_delay_seconds_sum\{reason="interval"\} ([0-9.]+)$/m)![1]);
+        expect(sum).toBeLessThan(1);
+
+        await pinger.close();
+        await runPromise;
+    }, 15000);
+});
+
 // Re-fetch the session mock created by the most recent Pinger construction
 function latestSession(): { pingHost: jest.Mock } {
     const netPing = jest.requireMock("net-ping") as { createSession: { mock: { results: Array<{ value: { pingHost: jest.Mock } }> } } };

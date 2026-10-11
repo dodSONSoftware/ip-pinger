@@ -1,6 +1,6 @@
 # /git-commit: Analyze and Commit Workflow
 
-Analyze all changes in the repository, update CLAUDE.md and README.md to reflect current project state, create a formatted commit message, stage everything, and commit. All commands execute from the project root.
+Analyze all changes in the repository, update CLAUDE.md, README.md, and CHANGELOG.md to reflect current project state, create a formatted commit message, stage everything, and commit. All commands execute from the project root.
 
 ## Steps
 
@@ -11,6 +11,7 @@ Run these before making any changes:
 - `PROJECT_ROOT=$(git rev-parse --show-toplevel) && test -f "$PROJECT_ROOT/package.json"` — verify package.json exists at project root
 - `PROJECT_ROOT=$(git rev-parse --show-toplevel) && node -p "try { JSON.parse(require('fs').readFileSync('$PROJECT_ROOT/package.json')); true } catch(e) { false }"` — validate package.json syntax
 - `test -f src/version.ts && grep -E "^export const APP_(VERSION|NAME) = " src/version.ts` — get the current app version and release codename for reference. `src/version.ts` is the app version's source of truth (reported by `/about`); `package.json` must stay in sync with it. If `version.ts` is missing or either constant is missing, abort with a clear error.
+- `test -f CHANGELOG.md` — verify the changelog exists. If it is missing, abort with a clear error rather than inventing a format.
 
 If checks fail, abort with clear error message.
 
@@ -108,9 +109,15 @@ if (!content.includes(`export const APP_NAME = "${codename}"`)) {
 fs.writeFileSync(VERSION_TS, content);
 ```
 
-### 3. UPDATE README.md AND CLAUDE.md
+### 3. UPDATE README.md, CLAUDE.md, AND CHANGELOG.md
 
 Sync the project documentation to the new state before committing — the version bump from step 2 must be reflected here so the docs never drift from the committed version. These edits are mandatory, not optional.
+
+**CHANGELOG.md — always:**
+- Insert a new `## [X.Y.Z] — <Material Animal> (YYYY-MM-DD)` entry immediately after the file's header lines and before the existing top entry (versions are newest first). Use the em dash (`—`) between version and codename.
+- The codename is derived from the new version with the release codename scheme at the end of this file — the same name used in the commit subject. A patch bump on the same major.minor gets its own entry; the codename stays unchanged (e.g., `## [1.11.39] — Cobalt Fox (2026-10-11)`).
+- The date is the day the commit is made.
+- Add one bullet per user-visible change, from the step 1 analysis. Write them feature-oriented (what changed and why it matters, in the style of the existing entries), unlike the step 4 commit body, which lists per-file changes — both are derived from the same analysis and must not contradict each other. The version/codename bump and the package.json/README/CLAUDE/CHANGELOG bookkeeping edits themselves are not user-visible changes and get no bullets.
 
 **README.md — always:**
 - **Release line** — update it to the new version and codename: `**Release:** <Material Animal> — version <X.Y.Z>.` Derive the codename from the new version using the release codename scheme at the end of this file; the release line is the codename's home in the README. If the README has no release line, add one near the top.
@@ -131,7 +138,7 @@ Sync the project documentation to the new state before committing — the versio
 - **Removed files** — remove stale entries
 - **Architecture/config changes** — update architecture notes or commands
 
-The documentation edits are part of the commit: list them in the commit-message bullets and let `git add .` (step 5) stage them alongside the code changes.
+The documentation edits are part of the commit: list the README/CLAUDE edits in the commit-message bullets (the CHANGELOG.md entry is implicit in the subject's version/codename and needs no bullet of its own) and let `git add .` (step 5) stage them alongside the code changes.
 
 ### 4. GENERATE COMMIT MESSAGE
 
@@ -185,7 +192,7 @@ Run:
 - **version.ts and package.json disagree on the current version**: Abort with a message showing both values; the drift is ambiguous and must be resolved by hand first
 - **Malformed package.json**: Show parsing error and exit
 - **Git command failure**: Show error output and exit code
-- **Commit failure**: Rollback the version bump and documentation edits (restore original package.json, src/version.ts, README.md, and CLAUDE.md)
+- **Commit failure**: Rollback the version bump and documentation edits (restore original package.json, src/version.ts, README.md, CLAUDE.md, and CHANGELOG.md)
 
 ## Output
 
@@ -196,7 +203,7 @@ After successful commit, return:
    ```
    - <file_path>: <description>
    ```
-3. **Documentation updates**: what was synced in README.md (release line at minimum) and CLAUDE.md
+3. **Documentation updates**: what was synced in README.md (release line at minimum), CLAUDE.md, and the CHANGELOG.md entry that was added (version, codename, date)
 4. **Version bump**: old → new
 5. **Summary** of notable changes
 

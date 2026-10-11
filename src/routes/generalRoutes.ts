@@ -7,7 +7,7 @@ import type express from "express";
 import { IPV4_SCHEMA, validateConfig, getConfigPath, loadConfig, getRestartRequiredSettings, requiresRestart, RESTART_REQUIRED_FIELDS } from "../common";
 import type { RestartRequiredSettings } from "../common";
 import { ensureError, write_file } from "../systemFunctions";
-import type { ILogger, IPinger, IConfig, IDevice } from "../interfaces";
+import type { ILogger, IPinger, IConfig, IDevice, ConfigReloadResult, AdhocPingResult } from "../interfaces";
 import { LogLevel } from "../interfaces";
 import { Logger } from "../Logger";
 import { APP_VERSION, APP_NAME } from "../version";
@@ -89,9 +89,11 @@ export const aboutInformation: AboutInformation = {
             "The **IP Pinger Services** loads device definitions from YAML configuration and performs scheduled ping cycles at configurable intervals. " +
             "For each device, it records online or offline status, round-trip latency, last successful and failed checks, and categorized errors such as " +
             "timeouts and unreachable hosts.\n\nThe **IP Pinger Services** exposes Prometheus metrics for device availability, latency distribution, monitoring " +
-            "cycle duration, timestamps, and network errors. These metrics support Grafana dashboards, alerting, historical analysis, and early detection of " +
-            "connectivity or performance issues.\n\nRuntime configuration updates allow devices and monitoring settings to be changed without restarting the " +
-            "service. Health endpoints, structured logging, and automatic cleanup of metrics for removed devices support reliable production operation.",
+            "cycle duration, timestamps, and network errors, as well as application-level metrics (operational state, configuration state and reload outcomes, " +
+            "cycle timing, and log-transport health) and standard Node.js process metrics. These metrics support Grafana dashboards, alerting, historical " +
+            "analysis, and early detection of connectivity or performance issues.\n\nRuntime configuration updates allow devices and monitoring settings to be " +
+            "changed without restarting the service. Health endpoints, structured logging, and automatic cleanup of metrics for removed devices support " +
+            "reliable production operation.",
         copyright: "Copyright © 2026 dodson Software ( dodson labs )",
         license: "MIT License"
     },
@@ -202,7 +204,7 @@ export const endpointsInfo: EndpointsInfo = {
             verb: "GET",
             requestBody: "None",
             responseBody: "Prometheus metrics in text format",
-            description: "Returns Prometheus metrics for scraped devices."
+            description: "Returns Prometheus metrics (device, application, and process) in text format."
         },
         {
             name: "Health",
@@ -410,6 +412,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             // so reject anything else before it can reach net-ping.
             const parsed = IPV4_SCHEMA.safeParse(target);
             if (!parsed.success) {
+                recordAdhocPing("invalid_target");
                 res.status(_400).json({
                     success: false,
                     message: `ERROR: '${target}' is not a valid IPv4 address.`
@@ -417,8 +420,14 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 return;
             }
 
-            res.type("application/json").status(OK).json(await getPing(parsed.data));
+            const result = await getPing(parsed.data);
+            recordAdhocPing(result.isAlive ? "ok" : "down");
+            res.type("application/json").status(OK).json(result);
         } catch (error) {
+            // The only failure that can reach this catch is the ping
+            // itself rejecting (validation and the 400 path above are
+            // synchronous); the ping could not be performed at all
+            recordAdhocPing("error");
             // Express 4 does not forward rejected async handlers to its
             // error path; hand the failure off explicitly so the error
             // middleware answers it as a controlled 500.
@@ -554,6 +563,8 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 const writeSuccess = write_file(getConfigPath(), yamlStr, log_writer);
 
                 if (!writeSuccess.success) {
+                    // The payload validated, but nothing was applied
+                    recordConfigReload("rejected");
                     res.status(_400).json({
                         success: false,
                         message: writeSuccess.error || `ERROR: Failed to write configuration file.`
@@ -580,6 +591,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
                     ip_pinger.updateConfig(newConfig, config_text);
                 }
+                recordConfigReload("success");
 
                 // Intentional split sinks: the full configuration dump goes
                 // to the console only (docker logs) via the static writer,
@@ -605,6 +617,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 // An invalid payload answers 400 but would otherwise leave
                 // no trace of why the write failed — log the validation
                 // errors, not just the fact of the rejection
+                recordConfigReload("rejected");
                 log_writer.write_warn(
                     originator + ".write-config",
                     `Configuration payload rejected: ${validData.errors.join("; ")}`
@@ -622,6 +635,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             // monitoring does not absorb a server failure, and log it to
             // console + Loki before answering.
             const err = ensureError(error);
+            recordConfigReload("rejected");
             log_writer.write_error("generalRoutes.write-config", `Unexpected error processing configuration payload: ${err.name}: ${err.message}`);
             res.status(InternalServerError).json({
                 success: false,
@@ -672,6 +686,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             if (ip_pinger && typeof ip_pinger.updateConfig === "function") {
                 ip_pinger.updateConfig(newConfig, rawText);
             }
+            recordConfigReload("success");
 
             // Intentional split sinks: the full configuration dump goes to
             // the console only (docker logs) via the static writer, while
@@ -698,6 +713,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             // invalid config file), even though the route contract answers
             // it as a 400 — log it to console + Loki before answering.
             const err = ensureError(error);
+            recordConfigReload("rejected");
             log_writer.write_error("generalRoutes.reload-config", `Failed to reload configuration: ${err.name}: ${err.message}`);
             res.status(_400).json({
                 success: false,
@@ -711,7 +727,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      * /metrics:
      *   get:
      *     summary: Returns Prometheus metrics.
-     *     description: Returns Prometheus metrics in text format for scraping by Prometheus.
+     *     description: Returns Prometheus metrics (device, application, and process) in text format for scraping by Prometheus.
      *     responses:
      *       200:
      *         description: Prometheus metrics in text format
@@ -891,6 +907,22 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
         );
     }
 
+    // The route handlers report reload and ad-hoc-ping outcomes to the
+    // running pinger, which owns the counters (pinger_config_reload_total,
+    // pinger_adhoc_ping_total) — the same guarded-call pattern the
+    // updateConfig calls use.
+    function recordConfigReload(result: ConfigReloadResult): void {
+        if (ip_pinger && typeof ip_pinger.recordConfigReload === "function") {
+            ip_pinger.recordConfigReload(result);
+        }
+    }
+
+    function recordAdhocPing(result: AdhocPingResult): void {
+        if (ip_pinger && typeof ip_pinger.recordAdhocPing === "function") {
+            ip_pinger.recordAdhocPing(result);
+        }
+    }
+
     // Ping helpers live in this invocation's closure so every request is
     // answered by the pinger instance these routes were registered with.
     async function getPing(ipAddress: string): Promise<PingResult> {
@@ -920,10 +952,14 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
 
                     // ping device, add the source and return the results
                     let dude = await getPing(ipAddress);
+                    recordAdhocPing(dude.isAlive ? "ok" : "down");
                     dude.source = source;
                     dude.deviceType = deviceType;
                     return dude;
                 } catch (err) {
+                    // The ping could not be performed at all (distinct from
+                    // a completed ping the device did not answer)
+                    recordAdhocPing("error");
                     // Return error info with device context preserved
                     return {
                         source: String(device.source),

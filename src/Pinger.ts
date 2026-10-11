@@ -121,6 +121,15 @@ export class Pinger implements dli.IPinger {
     private prometheus_Pinger_Last_Success_Timestamp_Gauge!: Gauge;
     private prometheus_Pinger_Last_Failure_Timestamp_Gauge!: Gauge;
     private prometheus_Pinger_Error_Total!: Counter;
+    // Application-level metrics (no device labels, system-wide)
+    private prometheus_Pinger_Operational_Gauge: Gauge;
+    private prometheus_Pinger_Last_Cycle_Timestamp_Gauge: Gauge;
+    private prometheus_Pinger_Config_Pending_Update_Gauge: Gauge;
+    private prometheus_Pinger_Config_Reload_Total: Counter;
+    private prometheus_Pinger_Config_Loaded_Timestamp_Gauge: Gauge;
+    private prometheus_Pinger_Config_Devices_Gauge: Gauge;
+    private prometheus_Pinger_Cycle_Delay_Histogram: Histogram;
+    private prometheus_Pinger_Adhoc_Ping_Total: Counter;
 
     // ********
     // ******** ctor
@@ -149,6 +158,57 @@ export class Pinger implements dli.IPinger {
         this.prometheus_Pinger_Devices_Down_Gauge = new Gauge({
             name: `pinger_devices_down`,
             help: "Number of devices currently unreachable.",
+        });
+
+        // Application-level metrics: the state of the service itself, so
+        // Prometheus can alert on the pinger the same way it alerts on the
+        // devices it monitors.
+        this.prometheus_Pinger_Operational_Gauge = new Gauge({
+            name: `pinger_operational`,
+            help: "1 while the pinger can still perform ping cycles, 0 after a fatal net-ping session failure.",
+        });
+        this.prometheus_Pinger_Operational_Gauge.set(1);
+
+        this.prometheus_Pinger_Last_Cycle_Timestamp_Gauge = new Gauge({
+            name: `pinger_last_cycle_timestamp`,
+            help: "Unix timestamp of the last completed ping cycle.",
+        });
+
+        this.prometheus_Pinger_Config_Pending_Update_Gauge = new Gauge({
+            name: `pinger_config_pending_update`,
+            help: "1 while a configuration update waits for the ping cycle boundary, 0 otherwise.",
+        });
+
+        this.prometheus_Pinger_Config_Reload_Total = new Counter({
+            name: `pinger_config_reload_total`,
+            help: "Configuration reload attempts by result (rejected covers validation, write, and load failures).",
+            labelNames: ["result"],
+        });
+
+        // The boot configuration is the first configuration ever applied
+        this.prometheus_Pinger_Config_Loaded_Timestamp_Gauge = new Gauge({
+            name: `pinger_config_loaded_timestamp`,
+            help: "Unix timestamp of when the live configuration was last applied.",
+        });
+        this.prometheus_Pinger_Config_Loaded_Timestamp_Gauge.set(Math.floor(startDate.getTime() / 1000));
+
+        this.prometheus_Pinger_Config_Devices_Gauge = new Gauge({
+            name: `pinger_config_devices`,
+            help: "Number of devices in the live configuration.",
+        });
+        this.prometheus_Pinger_Config_Devices_Gauge.set(this.configuration.devices.length);
+
+        this.prometheus_Pinger_Cycle_Delay_Histogram = new Histogram({
+            name: `pinger_cycle_delay_seconds`,
+            help: "Delay of a cycle start beyond its scheduled deadline, by the reason the inter-cycle wait ended. Waits woken early (config change, shutdown) observe 0.",
+            labelNames: ["reason"],
+            buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 5, 15],
+        });
+
+        this.prometheus_Pinger_Adhoc_Ping_Total = new Counter({
+            name: `pinger_adhoc_ping_total`,
+            help: "On-demand pings via the /ping endpoints by result.",
+            labelNames: ["result"],
         });
 
         // Device-specific metrics (with labels). These are process-lived:
@@ -365,6 +425,12 @@ export class Pinger implements dli.IPinger {
         this.configuration = config;
         this.config_str = config_str;
         this.removeRemovedDeviceMetrics();
+        // Record when and what was applied: the timestamp tells a dashboard
+        // when the current live state began, the device count the size of
+        // it (distinct from devices_up/down, which reflect the last
+        // observation, not the configuration).
+        this.prometheus_Pinger_Config_Loaded_Timestamp_Gauge.set(Math.floor(Date.now() / 1000));
+        this.prometheus_Pinger_Config_Devices_Gauge.set(this.configuration.devices.length);
         this.logger.write_info(this.originator + ".applyConfigUpdate", `Configuration updated. ${this.configuration.devices.length} devices configured.`);
     }
 
@@ -384,12 +450,29 @@ export class Pinger implements dli.IPinger {
     public updateConfig(config: dli.IConfig, config_str: string): void {
         if (this.ping_cycle_in_flight) {
             this.pending_update = { config, config_str };
+            this.prometheus_Pinger_Config_Pending_Update_Gauge.set(1);
             this.logger.write_info(this.originator + ".updateConfig", `Ping cycle in flight; configuration update pending until the cycle boundary. ${config.devices.length} devices configured.`);
             return;
         }
 
         this.applyConfigUpdate(config, config_str);
         this.signalCycleWake();
+    }
+
+    /**
+     * Records a configuration reload attempt (from the /write-config and
+     * /reload-config route handlers) in pinger_config_reload_total.
+     */
+    public recordConfigReload(result: dli.ConfigReloadResult): void {
+        this.prometheus_Pinger_Config_Reload_Total.inc({ result });
+    }
+
+    /**
+     * Records an on-demand ping requested through the /ping endpoints in
+     * pinger_adhoc_ping_total.
+     */
+    public recordAdhocPing(result: dli.AdhocPingResult): void {
+        this.prometheus_Pinger_Adhoc_Ping_Total.inc({ result });
     }
 
     /**
@@ -637,6 +720,11 @@ export class Pinger implements dli.IPinger {
                 this.prometheus_Pinger_Cycle_Duration_Histogram.observe(cycle_duration_seconds);
             }
 
+            // Record when the cycle completed: a stale timestamp is the
+            // signal that the run loop has stopped running cycles (the
+            // duration histogram is silent when no cycles run at all).
+            this.prometheus_Pinger_Last_Cycle_Timestamp_Gauge.set(Math.floor(cycle_end_date.getTime() / 1000));
+
             // All pings of this cycle have completed and their results are
             // fully processed; configuration updates may now apply directly.
             this.ping_cycle_in_flight = false;
@@ -651,6 +739,7 @@ export class Pinger implements dli.IPinger {
                 const { config, config_str } = this.pending_update;
                 this.pending_update = undefined;
                 this.applyConfigUpdate(config, config_str);
+                this.prometheus_Pinger_Config_Pending_Update_Gauge.set(0);
             }
 
             // The session failed during the cycle: its flush of the in-flight
@@ -740,6 +829,9 @@ export class Pinger implements dli.IPinger {
                 this.fatal_session_error = new Error("net-ping session closed unexpectedly");
             }
             this.fatal_session_error_resolve(this.fatal_session_error);
+            // isOperational() is derived from the same flag; the gauge is
+            // what /health's 503 exposes to Prometheus alerting
+            this.prometheus_Pinger_Operational_Gauge.set(0);
 
             // log-it
             const err = ensureError(this.fatal_session_error);
@@ -764,6 +856,9 @@ export class Pinger implements dli.IPinger {
                 this.fatal_session_error = err;
             }
             this.fatal_session_error_resolve(this.fatal_session_error);
+            // isOperational() is derived from the same flag; the gauge is
+            // what /health's 503 exposes to Prometheus alerting
+            this.prometheus_Pinger_Operational_Gauge.set(0);
 
             // log-it
             logger.write_error(`${originator}.setup_net_pinger_functions`, errorMsg);
@@ -845,6 +940,17 @@ export class Pinger implements dli.IPinger {
         }
         if (outcome === "fatal") {
             throw this.fatal_session_error;
+        }
+        // A wait anchored to a cycle start (since given) has a scheduled
+        // deadline: how far the next cycle began beyond it is the delay.
+        // An event-loop stall delays the interval timer, so a rising
+        // delay under reason="interval" is visible in the histogram; a
+        // wait woken early (config change, shutdown) clamps to 0 — the
+        // reason label already says the deadline was never reached.
+        if (since !== undefined) {
+            const scheduledStartMs = since.getTime() + intervalMs;
+            const delaySeconds = Math.max(0, (Date.now() - scheduledStartMs) / 1000);
+            this.prometheus_Pinger_Cycle_Delay_Histogram.observe({ reason: outcome }, delaySeconds);
         }
         return outcome;
     }

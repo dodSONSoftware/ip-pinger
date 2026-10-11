@@ -6,6 +6,7 @@
 import winston from "winston";
 import type Transport from "winston-transport";
 import LokiTransport from "winston-loki";
+import { Counter } from "prom-client";
 import type { IConfig, ILogger } from "./interfaces";
 import { LogLevel } from "./interfaces";
 import { getLokiConfig } from "./common";
@@ -42,6 +43,20 @@ export class Logger implements ILogger {
                     : LogLevel.Error;
 
         this.globalLogLevelName = config.logLevel;
+
+        // Application-level metrics for the Loki transport (unlabeled): a
+        // remote log sink that is silently dropping entries is the same
+        // class of problem this service monitors for in devices, so it is
+        // visible in /metrics the same way. Both stay at 0 while the
+        // transport is disabled.
+        this.lokiSendFailuresTotal = new Counter({
+            name: `pinger_loki_send_failures_total`,
+            help: "Failed sends to the Loki transport (each failed batched POST).",
+        });
+        this.lokiFlushTimeoutsTotal = new Counter({
+            name: `pinger_loki_flush_timeouts_total`,
+            help: "Bounded flush() calls that timed out before Loki acknowledged the queued entries.",
+        });
 
         // Build Winston logger with configured transports
         const transports: Transport[] = [
@@ -116,6 +131,8 @@ export class Logger implements ILogger {
     private readonly globalLogLevelValue: LogLevel = LogLevel.None;
     private readonly globalLogLevelName: string = "";
     private readonly winston: winston.Logger;
+    private readonly lokiSendFailuresTotal: Counter;
+    private readonly lokiFlushTimeoutsTotal: Counter;
     // Rate-limiter state for the Loki connection-failure warn (see
     // onLokiConnectionError): total failed sends since construction,
     // the total at the last warn, and the last warn's timestamp.
@@ -211,6 +228,10 @@ export class Logger implements ILogger {
      */
     private onLokiConnectionError(error: unknown): void {
         this.lokiFailureCount++;
+        // Count every failed send: the warn below is rate-limited, but the
+        // counter must not be — a long outage is one warn per five minutes
+        // and potentially hundreds of failed batches
+        this.lokiSendFailuresTotal.inc();
         const now = Date.now();
         if (this.lokiFailureCount > 1 && now - this.lokiLastWarnAt < LOKI_WARN_INTERVAL_MS) {
             return;
@@ -256,6 +277,10 @@ export class Logger implements ILogger {
             // Loki is down) — when the timeout wins, say so, because the
             // queued entries may never have been delivered.
             if (outcome === "timeout") {
+                // Only a timeout is counted: the batched sends whose
+                // failures it subsumes are already counted individually in
+                // pinger_loki_send_failures_total
+                this.lokiFlushTimeoutsTotal.inc();
                 this.write_warn("Logger.flush", `Loki flush timed out after ${timeoutMs}ms; queued log entries may not have reached Loki.`);
             }
         } finally {

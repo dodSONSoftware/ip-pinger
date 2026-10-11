@@ -3,6 +3,13 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.13.0] — Graphite Fox (2026-10-11)
+
+- Add application-level Prometheus metrics so Prometheus can alert on the pinger the same way it alerts on its devices: `pinger_operational` (1 while the pinger can run cycles, 0 after a fatal net-ping session failure — mirrors `/health`'s 503), `pinger_last_cycle_timestamp` (a stale timestamp is the signal that the run loop has stopped running cycles), `pinger_cycle_delay_seconds` (how far a cycle start lands beyond its scheduled deadline, by the reason the inter-cycle wait ended), `pinger_config_pending_update` (1 while a configuration update waits for the cycle boundary), `pinger_config_reload_total` (reload attempts by `result` — `success`/`rejected`, where `rejected` covers validation, file-write, and load failures), `pinger_config_loaded_timestamp` and `pinger_config_devices` (when the live configuration was last applied and how many devices it holds), and `pinger_adhoc_ping_total` (on-demand pings via the `/ping` endpoints by `result` — `ok`/`down`/`invalid_target`/`error`)
+- Make the Loki transport's health visible in `/metrics`: `pinger_loki_send_failures_total` counts every failed batched send (the warn is rate-limited to one per five minutes, the counter is not) and `pinger_loki_flush_timeouts_total` counts bounded `flush()` calls that timed out before Loki acknowledged the queued entries
+- Register the standard prom-client `node_*`/`process_*` process metrics (uptime, heap, event-loop lag, GC, …) on the same `/metrics` endpoint, and extend the `/about` description and the `/metrics` documentation to cover the application- and process-level metrics
+- Add regression tests pinning every new metric: the Pinger's application-level metrics, the Logger's Loki counters, and the config- and ping-route handlers' result recording
+
 ## [1.12.0] — Carbon Fox (2026-10-11)
 
 - Add edge-triggered device transition logging: a per-device-key alive-state map logs exactly one line at each state change (error `went down`, info `is back up` carrying the roundtrip) — the first observation baselines silently, the entry is removed with the device's metrics on config reload so a re-added device baselines fresh, and the per-cycle per-ping failure error is unchanged; regression tests pin both the baseline/transition behavior and the re-add baselining

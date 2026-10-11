@@ -28,6 +28,8 @@ const fakePinger: IPinger = {
     run: jest.fn(),
     ping_device: pingDevice,
     updateConfig: jest.fn(),
+    recordConfigReload: jest.fn(),
+    recordAdhocPing: jest.fn(),
     isOperational: () => true,
     isClosed: () => false,
     close: jest.fn(),
@@ -66,6 +68,7 @@ afterAll(async () => {
 
 beforeEach(() => {
     pingDevice.mockClear();
+    (fakePinger.recordAdhocPing as jest.Mock).mockClear();
     // Default back to a healthy pinger
     pingDevice.mockResolvedValue([true, 10]);
 });
@@ -141,5 +144,63 @@ describe("/ping (async error handling)", () => {
         expect(body).toHaveLength(1);
         expect(body[0].isAlive).toBe(false);
         expect(body[0].error).toContain("simulated ping failure");
+    });
+});
+
+describe("/ping (adhoc ping results)", () => {
+    it("records ok for a target the device answers", async () => {
+        pingDevice.mockResolvedValue([true, 10]);
+
+        const { status } = await get("/ping/10.0.0.1");
+
+        expect(status).toBe(200);
+        expect(fakePinger.recordAdhocPing).toHaveBeenCalledTimes(1);
+        expect(fakePinger.recordAdhocPing).toHaveBeenCalledWith("ok");
+    });
+
+    it("records down for a target the device does not answer", async () => {
+        pingDevice.mockResolvedValue([false, 0]);
+
+        const { status } = await get("/ping/10.0.0.1");
+
+        expect(status).toBe(200);
+        expect(fakePinger.recordAdhocPing).toHaveBeenCalledWith("down");
+    });
+
+    it("records invalid_target for a non-IPv4 target without pinging", async () => {
+        const { status } = await get("/ping/not-an-ip");
+
+        expect(status).toBe(400);
+        expect(fakePinger.recordAdhocPing).toHaveBeenCalledWith("invalid_target");
+        expect(pingDevice).not.toHaveBeenCalled();
+    });
+
+    it("records error when the ping cannot be performed", async () => {
+        pingDevice.mockRejectedValue(new Error("simulated ping failure"));
+
+        const { status } = await get("/ping/10.0.0.1");
+
+        expect(status).toBe(500);
+        expect(fakePinger.recordAdhocPing).toHaveBeenCalledWith("error");
+    });
+
+    it("records one result per configured device for /ping", async () => {
+        pingDevice.mockResolvedValue([true, 10]);
+
+        const res = await fetch(baseUrl + "/ping");
+
+        expect(res.status).toBe(200);
+        expect(fakePinger.recordAdhocPing).toHaveBeenCalledTimes(1);
+        expect(fakePinger.recordAdhocPing).toHaveBeenCalledWith("ok");
+    });
+
+    it("records error per device when a /ping ping cannot be performed", async () => {
+        pingDevice.mockRejectedValue(new Error("simulated ping failure"));
+
+        const res = await fetch(baseUrl + "/ping");
+
+        expect(res.status).toBe(200);
+        expect(fakePinger.recordAdhocPing).toHaveBeenCalledTimes(1);
+        expect(fakePinger.recordAdhocPing).toHaveBeenCalledWith("error");
     });
 });

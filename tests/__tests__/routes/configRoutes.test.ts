@@ -50,11 +50,14 @@ function yamlFor(config: IConfig): string {
 // Test double for the running pinger: records the configuration the
 // route handlers apply at runtime.
 const updateConfig = jest.fn();
+const recordConfigReload = jest.fn();
 const fakePinger: IPinger = {
     start: jest.fn(async (): Promise<void> => { }),
     run: jest.fn(),
     ping_device: jest.fn(async (): Promise<[boolean, number]> => [true, 10]),
     updateConfig: updateConfig,
+    recordConfigReload: recordConfigReload,
+    recordAdhocPing: jest.fn(),
     isOperational: () => true,
     isClosed: () => false,
     close: jest.fn(),
@@ -86,6 +89,7 @@ afterAll(async () => {
 
 beforeEach(() => {
     updateConfig.mockClear();
+    recordConfigReload.mockClear();
 });
 
 async function get(path: string): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -289,6 +293,58 @@ describe("/write-config (malformed JSON body)", () => {
     });
 });
 
+describe("config reload results (pinger_config_reload_total)", () => {
+    it("records success for an applied /write-config", async () => {
+        const { status } = await postConfig({
+            logLevel: "info",
+            intervalSecs: 45,
+            lokiEnabled: false,
+            devices: [deviceA],
+        });
+
+        expect(status).toBe(200);
+        expect(recordConfigReload).toHaveBeenCalledTimes(1);
+        expect(recordConfigReload).toHaveBeenCalledWith("success");
+    });
+
+    it("records rejected for a /write-config payload that fails validation", async () => {
+        const { status } = await postConfig({
+            logLevel: "info",
+            intervalSecs: 30,
+            lokiEnabled: false,
+            devices: [{ source: "Bad Device", ipAddress: "256.0.0.1", deviceType: "sensor" }],
+        });
+
+        expect(status).toBe(400);
+        expect(recordConfigReload).toHaveBeenCalledTimes(1);
+        expect(recordConfigReload).toHaveBeenCalledWith("rejected");
+    });
+
+    it("records success for an applied /reload-config", async () => {
+        const { status } = await get("/reload-config");
+
+        expect(status).toBe(200);
+        expect(recordConfigReload).toHaveBeenCalledTimes(1);
+        expect(recordConfigReload).toHaveBeenCalledWith("success");
+    });
+
+    it("records rejected when the on-disk configuration cannot be loaded", async () => {
+        const before = fs.readFileSync(CONFIG_FILE, "utf-8");
+        fs.writeFileSync(CONFIG_FILE, "intervalSecs: not-a-number\n");
+
+        try {
+            const { status } = await get("/reload-config");
+
+            expect(status).toBe(400);
+            expect(recordConfigReload).toHaveBeenCalledTimes(1);
+            expect(recordConfigReload).toHaveBeenCalledWith("rejected");
+            expect(updateConfig).not.toHaveBeenCalled();
+        } finally {
+            fs.writeFileSync(CONFIG_FILE, before);
+        }
+    });
+});
+
 describe("removed alwaysLogErrors option", () => {
     it("accepts payloads still containing the removed key and does not persist it", async () => {
         const { status } = await postConfig({
@@ -324,6 +380,8 @@ describe("multiple route instances (state isolation)", () => {
         run: jest.fn(),
         ping_device: pingDeviceA,
         updateConfig: updateConfigA,
+        recordConfigReload: jest.fn(),
+        recordAdhocPing: jest.fn(),
         isOperational: () => true,
         isClosed: () => false,
         close: jest.fn(),
@@ -333,6 +391,8 @@ describe("multiple route instances (state isolation)", () => {
         run: jest.fn(),
         ping_device: pingDeviceB,
         updateConfig: updateConfigB,
+        recordConfigReload: jest.fn(),
+        recordAdhocPing: jest.fn(),
         isOperational: () => true,
         isClosed: () => false,
         close: jest.fn(),

@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Carbon Fox — version 1.12.0.
+**Release:** Graphite Fox — version 1.13.0.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -237,6 +237,25 @@ summaries also reach Loki.
 | `pinged_errors_total` | Counter | `ipAddress`, `deviceName`, `deviceType`, `errorType` | Total errors by type |
 
 Error types: `timeout`, `host_unreachable`, `ttl_exceeded`, `other`
+
+### Application Metrics
+
+The state of the service itself, so Prometheus can alert on the pinger the same way it alerts on its devices.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `pinger_operational` | Gauge | — | 1 while the pinger can run cycles, 0 after a fatal net-ping session failure (mirrors `/health`) |
+| `pinger_last_cycle_timestamp` | Gauge | — | Unix timestamp of the last completed ping cycle |
+| `pinger_config_pending_update` | Gauge | — | 1 while a configuration update waits for the ping cycle boundary, 0 otherwise |
+| `pinger_config_reload_total` | Counter | `result` | Configuration reload attempts; `result` is `success` or `rejected` |
+| `pinger_config_loaded_timestamp` | Gauge | — | Unix timestamp of when the live configuration was last applied |
+| `pinger_config_devices` | Gauge | — | Number of devices in the live configuration |
+| `pinger_cycle_delay_seconds` | Histogram | `reason` | Delay of a cycle start beyond its scheduled deadline; `reason` is `interval`, `config_changed`, or `shutdown` |
+| `pinger_adhoc_ping_total` | Counter | `result` | On-demand pings via the `/ping` endpoints; `result` is `ok`, `down`, `invalid_target`, or `error` |
+| `pinger_loki_send_failures_total` | Counter | — | Failed sends to the Loki transport |
+| `pinger_loki_flush_timeouts_total` | Counter | — | Bounded log flushes that timed out before Loki acknowledged |
+
+The endpoint also serves the standard prom-client `node_*` and `process_*` runtime metrics (uptime, heap, event-loop lag, GC, …).
 
 ## Development
 

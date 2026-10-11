@@ -94,11 +94,25 @@ export class ConsoleLogger implements ILogger {
 
 // **** Pinger
 
+// Outcome of a configuration reload attempt — the result label values of
+// pinger_config_reload_total. "rejected" covers every failure to apply:
+// validation rejection, configuration file write failure, and load failure.
+export type ConfigReloadResult = "success" | "rejected";
+
+// Outcome of an on-demand ping via the /ping endpoints — the result label
+// values of pinger_adhoc_ping_total. "down" is a completed ping the device
+// did not answer; "error" is a ping that could not be performed at all.
+export type AdhocPingResult = "ok" | "down" | "invalid_target" | "error";
+
 export interface IPinger {
     start(): Promise<void>;
     run(): Promise<void>;
     ping_device(ip_address: string): Promise<[boolean, number]>;
     updateConfig(config: IConfig, config_str: string): void;
+    // Records a configuration reload attempt in pinger_config_reload_total
+    recordConfigReload(result: ConfigReloadResult): void;
+    // Records an on-demand /ping request in pinger_adhoc_ping_total
+    recordAdhocPing(result: AdhocPingResult): void;
     // False once the net-ping session has failed unexpectedly: the pinger
     // can no longer run cycles and only a process restart recovers it.
     isOperational(): boolean;

@@ -32,7 +32,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.12.0 (release codename: Carbon Fox)
+**Version:** 1.13.0 (release codename: Graphite Fox)
 
 **Commands:**
 ```bash
@@ -106,6 +106,20 @@ while (!closed):
 - `pinged_errors_total` (Counter) — Total error count by type. Labels: `ipAddress`, `deviceName`, `deviceType`, `errorType`
   - Error types: `timeout`, `host_unreachable`, `ttl_exceeded`, `other` (net-ping reports every destination-unreachable condition as a single `DestinationUnreachableError` — the ICMP type/code is not surfaced — so host- and network-unreachable are indistinguishable and both report as `host_unreachable`)
 
+**Application-Level Metrics** (the state of the service itself, so Prometheus can alert on the pinger the same way it alerts on its devices):
+- `pinger_operational` (Gauge) — 1 while the pinger can run cycles, 0 after a fatal net-ping session failure (mirrors `/health`'s 503)
+- `pinger_last_cycle_timestamp` (Gauge) — Unix timestamp of the last completed ping cycle; a stale value is the signal that the run loop has stopped running cycles
+- `pinger_config_pending_update` (Gauge) — 1 while a configuration update waits for the ping cycle boundary, 0 otherwise
+- `pinger_config_reload_total` (Counter) — Reload attempts by `result` label: `success` / `rejected` (validation, file-write, and load failures all report as `rejected`)
+- `pinger_config_loaded_timestamp` (Gauge) — Unix timestamp of when the live configuration was last applied (baselined to the boot date)
+- `pinger_config_devices` (Gauge) — Number of devices in the live configuration
+- `pinger_cycle_delay_seconds` (Histogram) — Delay of a cycle start beyond its scheduled deadline, by `reason` label (`interval` / `config_changed` / `shutdown`); waits woken early observe 0
+- `pinger_adhoc_ping_total` (Counter) — On-demand pings via `/ping` and `/ping/:target` by `result` label: `ok` / `down` / `invalid_target` / `error`
+- `pinger_loki_send_failures_total` (Counter) — Failed sends to the Loki transport (owned by `Logger.ts`; every failed send counts, unlike the rate-limited warn)
+- `pinger_loki_flush_timeouts_total` (Counter) — Bounded `flush()` calls that timed out before Loki acknowledged (owned by `Logger.ts`)
+
+**Process Metrics:** `collectDefaultMetrics()` in `src/index.ts` registers the standard prom-client `node_*`/`process_*` set (uptime, heap, event-loop lag, GC, …) on the same `/metrics` endpoint.
+
 **Note on Metric History Management:** All Prometheus metrics are process-lived objects created once at construction. When a config reload removes devices, only that device's label series are deleted via `metric.remove(labels)` (including every `errorType` combination of the error counter); `register.clear()` is never called, so retained devices' and the system-level metrics' history is preserved. Config updates requested while a ping cycle is in flight are held as pending and applied at the cycle boundary, so a stale in-flight ping cannot republish a removed device's series.
 
 ### Configuration (`config.yml`)
@@ -151,7 +165,7 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 - **Prometheus gauges:** Separate gauges for up status and round-trip time
 - **Graceful shutdown:** SIGINT/SIGTERM handlers call `pinger.close()`, which closes the HTTP API server (including idle keep-alive connections) and the net-ping session before exiting. `close()` also wakes the run loop out of its wait between cycles (and skips the settle wait entirely), so shutdown does not sleep out the ping interval. Pings still in flight when the session closes are treated as cancellations: they settle their promises but update no device state, error counters, timestamps, or latency metrics. A second signal arriving while a shutdown is already in progress is logged at warn and ignored, so a duplicate `close()`/`exit()` pair can never interleave
 - **Zod validation:** Schema-based config validation with readable error messages
-- **Version management:** `src/version.ts` is the version source of truth (`APP_VERSION`, reported by `/about` and the boot log); the `/git-commit` Claude Code command (`.claude/commands/git-commit.md`) bumps it in lockstep with `package.json`, derives the release codename, syncs README.md/CLAUDE.md, and commits
+- **Version management:** `src/version.ts` is the version source of truth (`APP_VERSION`, reported by `/about` and the boot log); the `/git-commit` Claude Code command (`.claude/commands/git-commit.md`) bumps it in lockstep with `package.json`, derives the release codename, syncs README.md/CLAUDE.md, adds the new version's CHANGELOG.md entry, and commits
 
 ## Development
 
