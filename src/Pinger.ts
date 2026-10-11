@@ -81,11 +81,13 @@ export class Pinger implements dli.IPinger {
     // Set by close() so the run() loop can exit at the next check, and so
     // the wait between cycles can end without sleeping out the interval
     private closed = false;
-    // The first unexpected net-ping session error, recorded by the session's
-    // "error" handler before it closes the session. Once set, the pinger is
-    // no longer operational: the session is closed and cannot be reused, so
-    // the run() loop terminates with this error and only a process restart
-    // (which recreates the session) can recover.
+    // The first unexpected net-ping session failure, recorded either by the
+    // session's "error" handler (before it closes the session) or by the
+    // "close" handler when the session closes without an "error" event
+    // (an OS-level socket death). Once set, the pinger is no longer
+    // operational: the session is closed and cannot be reused, so the run()
+    // loop terminates with this error and only a process restart (which
+    // recreates the session) can recover.
     private fatal_session_error?: Error;
     // Resolved (with the fatal error, never rejected) when the session fails
     // unexpectedly, so run() can wake from its waits instead of sleeping out
@@ -667,8 +669,38 @@ export class Pinger implements dli.IPinger {
         const originator = this.originator;
 
         // close event
-        this.ip_pinger.on("close", function () {
-            logger.write_debug(`${originator}.setup_net_pinger_functions`, `net_pinger closed.`);
+        this.ip_pinger.on("close", () => {
+            // A "close" we initiated is expected: Pinger.close() sets
+            // closed before closing the session, and the "error" handler
+            // below sets fatal_session_error before closing it after an
+            // unexpected session failure. In both cases the lifecycle is
+            // already owned, so the event is just logged.
+            if (this.closed || this.fatal_session_error !== undefined) {
+                logger.write_debug(`${originator}.setup_net_pinger_functions`, `net_pinger closed.`);
+                return;
+            }
+
+            // Any other "close" means the raw socket died without an
+            // "error" event: net-ping's onSocketClose emits "close" before
+            // it flushes the in-flight pings, so recording the fatal state
+            // here makes that flush classify as cancellations, not
+            // device-down observations. Left unhandled, the dead socket is
+            // still referenced by the session: later pingHost calls queue
+            // behind a socket that can never send, net-ping's per-request
+            // timeout is only armed once the raw socket accepts the send,
+            // and the run loop hangs forever while /health still reports
+            // healthy. Record a synthetic fatal (first error wins, as with
+            // "error") so the existing fatal path runs: run() rejects,
+            // isOperational() flips false, /health answers 503, and main()
+            // exits non-zero for an orchestrator restart.
+            if (this.fatal_session_error === undefined) {
+                this.fatal_session_error = new Error("net-ping session closed unexpectedly");
+            }
+            this.fatal_session_error_resolve(this.fatal_session_error);
+
+            // log-it
+            const err = ensureError(this.fatal_session_error);
+            logger.write_error(`${originator}.setup_net_pinger_functions`, `${err.message}\n${err.stack}`);
         });
 
         // log error

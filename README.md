@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.33.
+**Release:** Cobalt Fox — version 1.11.34.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -220,6 +220,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.34 | Treat an unexpected net-ping session close as fatal: a `"close"` event that the application did not initiate (an OS-level socket death with no preceding `"error"` event) now records a synthetic fatal error, so the run loop terminates, `/health` reports 503, and the orchestrator restarts the process — instead of the run loop hanging on a socket that can never send while `/health` still reports healthy. App-initiated closes (graceful `close()` and the fatal-`"error"` close) remain non-fatal, and regression tests pin both directions |
 | v1.11.33 | Keep the module logger alive from boot: it is seeded with the console-only bootstrap logger so a SIGINT/SIGTERM in the pre-configuration window logs and exits 0 instead of throwing a TypeError that the terminal boundary would report as a non-zero crash, and the terminal boundary flushes Loki only when the full Logger is in place |
 | v1.11.32 | Remove dead code: the write-only configuration string in the route closure (the raw text lives on the Pinger), the unused `_418`/`Text` route constants, and the unused `systemFunctions` exports (`sleep`, `sleep_from_start`, `randomInt`, `elapsed_time_seconds`, `get_timestamp_iso`, `convert_from_log_level_string_to_enum` — the last also carried a stale TODO) |
 | v1.11.31 | Correct the ambient `net-ping` type declaration: `NetworkProtocol` now carries the library actual values (IPv4 = 1, IPv6 = 2) instead of 0/1, so a future value import of the enum cannot silently select the wrong address family |

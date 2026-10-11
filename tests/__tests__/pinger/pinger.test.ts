@@ -300,6 +300,13 @@ describe("Pinger.run() (fatal net-ping session error)", () => {
         }
         return call[1] as (error: Error) => void;
     }
+    function sessionCloseListener(session: SessionMock): () => void {
+        const call = session.on.mock.calls.find((c) => c[0] === "close");
+        if (!call) {
+            throw new Error("no 'close' listener registered on the net-ping session mock");
+        }
+        return call[1] as () => void;
+    }
     // Hold every ping in flight, and mirror the real net-ping 1.2.4
     // behavior: closing the session flushes every outstanding callback
     // with a plain error
@@ -413,6 +420,80 @@ describe("Pinger.run() (fatal net-ping session error)", () => {
         await expect(pinger.run()).rejects.toBe(sessionError);
         // ...without attempting any ping on the closed session
         expect(session.pingHost).not.toHaveBeenCalled();
+    });
+
+    it("a session close without an error is fatal: run() rejects, pings cancel, /health goes 503", async () => {
+        // Spy logger so a foreign close must surface as one session-level
+        // error, not as per-device ping errors
+        const write_error = jest.fn();
+        const spyLogger: ILogger = {
+            global_log_level: (): LogLevel => LogLevel.None,
+            global_log_level_string: (): string => "None",
+            write_info: jest.fn(),
+            write_warn: jest.fn(),
+            write_error: write_error,
+            write_debug: jest.fn(),
+        };
+
+        const pinger = new Pinger(makeConfig([deviceA, deviceB], { intervalSecs: 5 }), "initial config", spyLogger, new Date(), 0);
+        pingers.push(pinger);
+        await pinger.start();
+
+        // Prior history: both devices were last seen up
+        const metrics = pingerMetrics(pinger);
+        metrics.prometheus_Pinger_Up_Gauge.set(deviceALabels, 1);
+        metrics.prometheus_Pinger_Up_Gauge.set(deviceBLabels, 1);
+
+        const session = sessionMock();
+        const pending = flushOnClose(session);
+
+        const runPromise = pinger.run();
+        await waitFor(() => pending.length === 2);
+
+        // The raw socket dies without an "error" event: only "close" fires.
+        // Mirror the real net-ping 1.2.4 order — onSocketClose emits
+        // "close" first, then flushes every outstanding callback with a
+        // plain error — so the fatal state recorded by the "close" handler
+        // is already visible to the flush.
+        sessionCloseListener(session)();
+        for (const callback of pending) {
+            callback(new Error("Socket closed"), "", new Date(), new Date());
+        }
+
+        // The run loop terminates with the synthetic fatal error
+        await expect(runPromise).rejects.toThrow("net-ping session closed unexpectedly");
+
+        // The pinger is no longer operational and /health reports it
+        expect(pinger.isOperational()).toBe(false);
+        const port = ((pinger as unknown as { api_server: http.Server }).api_server.address() as { port: number }).port;
+        const unhealthy = await getHealth(port);
+        expect(unhealthy.status).toBe(503);
+
+        const output = await register.metrics();
+        // The in-flight pings were recorded as cancellations, not failures:
+        // devices keep their last recorded state (up)...
+        expect(output).toMatch(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m"));
+        expect(output).toMatch(new RegExp(`^pinged\\{[^}]*ipAddress="${deviceB.ipAddress}"[^}]*\\} 1$`, "m"));
+        // ...no failure timestamps were recorded...
+        expect(output).not.toMatch(/(^|\n)pinged_last_failure_timestamp\{/);
+        // ...and no error-counter entries
+        expect(output).not.toMatch(/(^|\n)pinged_errors_total\{/);
+        // The failure was logged once, as a session-level error
+        expect(write_error).toHaveBeenCalledTimes(1);
+        expect(write_error.mock.calls[0][1]).toContain("net-ping session closed unexpectedly");
+    }, 15000);
+
+    it("an app-initiated close delivers a non-fatal close event", async () => {
+        const pinger = await createPinger(makeConfig([deviceA]));
+        const session = sessionMock();
+
+        expect(pinger.isOperational()).toBe(true);
+        await pinger.close();
+        // Deliver the "close" event that follows the app-initiated session
+        // close: it must be logged, not recorded as a fatal failure
+        sessionCloseListener(session)();
+
+        expect(pinger.isOperational()).toBe(true);
     });
 });
 
