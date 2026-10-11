@@ -14,7 +14,11 @@ import { APP_VERSION } from "./version";
 // ******** global variables
 
 const originator: string = "index";
-let logger: Logger;
+// Seeded with a console-only bootstrap logger so the signal handlers and
+// the terminal error boundary can log — and a requested shutdown can exit
+// cleanly — even when a signal arrives before initialize() has loaded the
+// configuration and constructed the full Logger.
+let logger: interfaces.ILogger = new interfaces.ConsoleLogger(interfaces.LogLevel.Error);
 let pinger_dude: interfaces.IPinger;
 
 // ******** Load package info for logging
@@ -157,12 +161,14 @@ async function terminal_exit(kind: string, err: unknown): Promise<void> {
     terminating = true;
     const e = sysFunc.ensureError(err);
     const detail = `${e.name}: ${e.message}${e.stack ? `\n${e.stack}` : ""}`;
-    if (logger) {
-        logger.write_error(originator + `.${kind}`, detail);
-        // Bounded: an unreachable Loki must not stall the shutdown.
+    // logger is always set: before the configuration loads it is the
+    // console-only bootstrap logger; the full Logger replaces it once
+    // initialize() succeeds.
+    logger.write_error(originator + `.${kind}`, detail);
+    if (logger instanceof Logger) {
+        // Bounded: an unreachable Loki must not stall the shutdown. The
+        // bootstrap ConsoleLogger has no Loki transport to flush.
         await logger.flush(LOKI_FLUSH_TIMEOUT_MS);
-    } else {
-        Logger.write_local_log(interfaces.LogLevel.Error, originator + `.${kind}`, detail);
     }
     setTimeout(() => process.exit(1), 0);
 }

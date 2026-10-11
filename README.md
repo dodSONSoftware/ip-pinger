@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.32.
+**Release:** Cobalt Fox — version 1.11.33.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -220,6 +220,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.33 | Keep the module logger alive from boot: it is seeded with the console-only bootstrap logger so a SIGINT/SIGTERM in the pre-configuration window logs and exits 0 instead of throwing a TypeError that the terminal boundary would report as a non-zero crash, and the terminal boundary flushes Loki only when the full Logger is in place |
 | v1.11.32 | Remove dead code: the write-only configuration string in the route closure (the raw text lives on the Pinger), the unused `_418`/`Text` route constants, and the unused `systemFunctions` exports (`sleep`, `sleep_from_start`, `randomInt`, `elapsed_time_seconds`, `get_timestamp_iso`, `convert_from_log_level_string_to_enum` — the last also carried a stale TODO) |
 | v1.11.31 | Correct the ambient `net-ping` type declaration: `NetworkProtocol` now carries the library actual values (IPv4 = 1, IPv6 = 2) instead of 0/1, so a future value import of the enum cannot silently select the wrong address family |
 | v1.11.30 | Align the documented `pinged_errors_total` taxonomy with the implementation: the error types are `timeout`, `host_unreachable`, `ttl_exceeded`, and `other` (there is no `network_unreachable` — net-ping cannot distinguish host- from network-unreachable), and the stale comment in the stale-series test that described gauge rebuilding now describes the process-lived metrics it actually exercises |
