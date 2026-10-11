@@ -6,9 +6,13 @@
 declare module 'net-ping' {
     import * as events from 'events';
 
+    // Values match the installed library (net-ping 1.2.4 assigns IPv4 = 1
+    // and IPv6 = 2 — not the 0/1 values of node's net IP-family constants).
+    // The runtime reads them from the real module; a value import of this
+    // enum must therefore carry the library's actual numbers.
     export enum NetworkProtocol {
-        IPv4 = 0,
-        IPv6 = 1,
+        IPv4 = 1,
+        IPv6 = 2,
     }
 
     export interface SessionOptions {

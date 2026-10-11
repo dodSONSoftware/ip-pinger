@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.29.
+**Release:** Cobalt Fox — version 1.11.31.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -220,6 +220,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.31 | Correct the ambient `net-ping` type declaration: `NetworkProtocol` now carries the library actual values (IPv4 = 1, IPv6 = 2) instead of 0/1, so a future value import of the enum cannot silently select the wrong address family |
 | v1.11.30 | Align the documented `pinged_errors_total` taxonomy with the implementation: the error types are `timeout`, `host_unreachable`, `ttl_exceeded`, and `other` (there is no `network_unreachable` — net-ping cannot distinguish host- from network-unreachable), and the stale comment in the stale-series test that described gauge rebuilding now describes the process-lived metrics it actually exercises |
 | v1.11.29 | Make the `write_file` temporary filename unique per call (`<target>.<pid>.<n>.tmp`): with a fixed `<target>.tmp` name, a second writer against the same mount could overwrite the temp file before the first writer's rename, persisting the second writer's content as the first caller's successful write |
 | v1.11.28 | Give each Jest worker its own config file: `CONFIG_PATH` in the test setup is now per-worker (`/tmp/test-config-<pid>.yml`), so the suites that seed the config file and read it back through the API can no longer clobber each other under parallel Jest workers |
