@@ -128,6 +128,42 @@ logLevel: debug
         }
     });
 
+    it("rejects a configuration missing the required intervalSecs, naming the field", () => {
+        // intervalSecs has no schema default (the documented "default 60"
+        // never existed): omitting it must fail validation, not fall back
+        const yaml = `
+logLevel: debug
+devices:
+  - source: Test
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
+`;
+
+        const result = validateConfig(yaml);
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.errors.join(" ")).toContain("intervalSecs");
+        }
+    });
+
+    it("rejects a configuration missing the required logLevel, naming the field", () => {
+        const yaml = `
+intervalSecs: 30
+devices:
+  - source: Test
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
+`;
+
+        const result = validateConfig(yaml);
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.errors.join(" ")).toContain("logLevel");
+        }
+    });
+
     it("should return validation errors for invalid data", () => {
         const invalidData = `
 logLevel: invalid-level

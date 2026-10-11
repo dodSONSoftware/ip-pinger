@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.36.
+**Release:** Cobalt Fox — version 1.11.37.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -123,9 +123,16 @@ configuration option.
 
 | Option | Description | Default | Valid Values |
 |--------|-------------|---------|--------------|
-| `logLevel` | Logging verbosity (applies to both console and Loki output) | `info` | `debug`, `info`, `warn`, `error` |
-| `intervalSecs` | Ping cycle interval | `60` | Positive integer |
+| `logLevel` | Logging verbosity (applies to both console and Loki output) | required | `debug`, `info`, `warn`, `error` |
+| `intervalSecs` | Ping cycle interval | required | Positive integer |
 | `devices` | Array of devices to ping | required | Array of device objects |
+| `lokiUrl` | Loki endpoint for structured log forwarding | unset | URL; required when `lokiEnabled` is `true` |
+| `lokiEnabled` | Enable the Loki log transport | `false` | `true`, `false` |
+
+`logLevel` and `intervalSecs` have no defaults: the Zod schema rejects a
+configuration that omits either, so a missing value fails the service at
+startup (or at `/write-config`/`/reload-config` validation) instead of
+falling back to an implicit value.
 
 ### Device Types
 
@@ -220,6 +227,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.37 | Align the configuration-options table with the Zod schema: `logLevel` and `intervalSecs` are required (the documented defaults of `info` and `60` never existed — omitting either fails validation at startup or at `/write-config`/`/reload-config`), and `lokiUrl`/`lokiEnabled` are now listed with their actual optionality; regression tests pin the required-field contract |
 | v1.11.36 | Make `/about` report the live operational state: the `system.status` field is now computed from `isOperational()` at request time instead of serving the static `"healthy"` baseline, so `/about` no longer claims "healthy" while `/health` is already answering 503 after a fatal net-ping session failure; the fatal-session test now asserts both endpoints agree before and after the failure |
 | v1.11.35 | Make the net-ping module surface compile-checked: the ambient declaration in `src/types/net-ping.d.ts` now mirrors the 1.2.4 exports — adding the seven ICMP error classes (`RequestTimedOutError`, `DestinationUnreachableError`, `TimeExceededError`, `PacketTooBigError`, `ParameterProblemError`, `RedirectReceivedError`, `SourceQuenchError`) and dropping a `default` export the runtime module does not have — and `Pinger.ts` consumes the library through `import netPing = require("net-ping")`, so `createSession`, `NetworkProtocol`, and the `instanceof` operands in `getErrorType` are typed instead of `any` |
 | v1.11.34 | Treat an unexpected net-ping session close as fatal: a `"close"` event that the application did not initiate (an OS-level socket death with no preceding `"error"` event) now records a synthetic fatal error, so the run loop terminates, `/health` reports 503, and the orchestrator restarts the process — instead of the run loop hanging on a socket that can never send while `/health` still reports healthy. App-initiated closes (graceful `close()` and the fatal-`"error"` close) remain non-fatal, and regression tests pin both directions |
