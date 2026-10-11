@@ -12,8 +12,13 @@ import type { NextFunction } from "express";
 import express from "express";
 import { setupSwagger } from "./swagger";
 import { createRoutes } from "./routes/generalRoutes";
+// import = require keeps the CJS require at runtime (so jest's net-ping
+// module mock applies unchanged) while giving the whole module surface —
+// createSession, NetworkProtocol, and the error classes getErrorType
+// classifies via instanceof — the types from src/types/net-ping.d.ts
+// instead of `any`.
+import netPing = require("net-ping");
 import type { Session } from "net-ping";
-const netPing = require("net-ping");
 const cors = require("cors");
 
 // ****************************************************************

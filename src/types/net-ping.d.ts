@@ -30,6 +30,39 @@ declare module 'net-ping' {
         received: Date;
     }
 
+    // The library's ICMP error classes, mirroring the exports of net-ping
+    // 1.2.4. At runtime they are constructor functions wired with
+    // util.inherits(X, Error) rather than ES classes, but instanceof works
+    // through the prototype chain, so they are declared as Error subclasses.
+    // Pinger.getErrorType classifies the first three via instanceof; the
+    // rest are declared so a future instanceof check cannot reference a
+    // class the library does not export.
+    export class RequestTimedOutError extends Error { }
+    export class DestinationUnreachableError extends Error {
+        constructor(source: string);
+        source: string;
+    }
+    export class TimeExceededError extends Error {
+        constructor(source: string);
+        source: string;
+    }
+    export class PacketTooBigError extends Error {
+        constructor(source: string);
+        source: string;
+    }
+    export class ParameterProblemError extends Error {
+        constructor(source: string);
+        source: string;
+    }
+    export class RedirectReceivedError extends Error {
+        constructor(source: string);
+        source: string;
+    }
+    export class SourceQuenchError extends Error {
+        constructor(source: string);
+        source: string;
+    }
+
     export class Session extends events.EventEmitter {
         constructor(options: SessionOptions);
 
@@ -40,11 +73,5 @@ declare module 'net-ping' {
         on(event: 'error', listener: (error: Error) => void): this;
     }
 
-    function createSession(options: SessionOptions): Session;
-    const NetworkProtocol: typeof NetworkProtocol;
-
-    export default {
-        createSession,
-        NetworkProtocol,
-    };
+    export function createSession(options: SessionOptions): Session;
 }
