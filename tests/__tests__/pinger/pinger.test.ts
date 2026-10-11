@@ -120,6 +120,37 @@ describe("Pinger.close() (lifecycle)", () => {
     });
 });
 
+describe("Pinger closed state (main-loop guard)", () => {
+    it("marks the pinger closed so a caller's run loop stops re-entering run()", async () => {
+        const pinger = await createPinger(makeConfig([deviceA], { intervalSecs: 60 }));
+        const session = latestSession();
+
+        expect(pinger.isClosed()).toBe(false);
+        const runPromise = pinger.run();
+
+        // wait until the first cycle has completed and the loop is in the
+        // 60-second wait (the steady state main() is in when a signal arrives)
+        await waitFor(async () => {
+            const output = await register.metrics();
+            return output.match(new RegExp(`^pinged_roundtrip_seconds_count\\{[^}]*ipAddress="${deviceA.ipAddress}"[^}]*\\} 1$`, "m")) !== null;
+        });
+
+        await pinger.close();
+        await runPromise;
+
+        // The closed state is the caller's signal to stop looping...
+        expect(pinger.isClosed()).toBe(true);
+
+        // ...and re-entering run() on a closed pinger resolves promptly
+        // (skipping the settle wait entirely) without starting a new cycle:
+        // the spin main() must break out of
+        const reentry_started = Date.now();
+        await pinger.run();
+        expect(Date.now() - reentry_started).toBeLessThan(500);
+        expect(session.pingHost).toHaveBeenCalledTimes(1);
+    }, 15000);
+});
+
 describe("Pinger.close() (in-flight ping cancellation at shutdown)", () => {
     it("treats pings aborted by close() as cancellations, not network failures", async () => {
         // Spy logger so a shutdown cancellation must not produce a

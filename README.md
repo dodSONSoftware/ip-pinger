@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.26.
+**Release:** Cobalt Fox — version 1.11.27.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -123,7 +123,7 @@ configuration option.
 
 | Option | Description | Default | Valid Values |
 |--------|-------------|---------|--------------|
-| `logLevel` | Logging verbosity | `info` | `debug`, `info`, `warn`, `error` |
+| `logLevel` | Logging verbosity (applies to both console and Loki output) | `info` | `debug`, `info`, `warn`, `error` |
 | `intervalSecs` | Ping cycle interval | `60` | Positive integer |
 | `devices` | Array of devices to ping | required | Array of device objects |
 
@@ -148,7 +148,7 @@ Configuration can be updated at runtime:
 Settings split into two groups:
 
 - **Hot-reloadable** (applied immediately): `intervalSecs`, `devices`
-- **Restart-required** (active only after a process restart): `logLevel`, `lokiUrl`, `lokiEnabled`
+- **Restart-required** (active only after a process restart): `logLevel`, `lokiUrl`, `lokiEnabled`. `logLevel` gates all log output (console and Loki); entries below the configured level are neither printed nor sent
 
 `/write-config` and `/reload-config` report this via a machine-readable
 `restartRequired` field in the response.
@@ -220,6 +220,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.27 | Harden shutdown and terminal error handling: the main loop breaks once the pinger is closed (re-entering `run()` on a closed pinger spun the event loop and starved the in-flight `close()`), `uncaughtException`/`unhandledRejection` are logged to console + Loki, flushed to Loki with a bounded 3s timeout, then exit non-zero for a container restart, `POST /write-config` answers 500 for unexpected server-side failures (invalid payloads still 400), config-route load failures log at a single point, and `logLevel` now gates Loki output as well as console |
 | v1.11.26 | Answer forwarded errors that carry an HTTP status with that status instead of a blanket 500: a malformed JSON body (e.g., to `/write-config`) now returns the body-parser 400 and an oversized payload its 413, and client errors are logged at warn level instead of error |
 | v1.11.25 | Align the fixed API port to **32001** everywhere it is referenced: the `API_PORT` constant, the Dockerfile `EXPOSE`/healthcheck, `docker-compose.yml` port mapping and healthcheck, the README/CLAUDE port documentation, the `/about` endpoint description, and the port-related tests |
 | v1.11.24 | Make the Docker config mount work with `POST /write-config`: the host config is now a **directory** owned by uid 1000 (mounted at `/app/config`), because atomic temp-file+rename persistence can never replace a single-file bind mount (`EBUSY`) or write into a `root`-owned directory (`EACCES`); `docker-refresh.sh` pre-creates and chowns the config directory before startup and blocks on `docker compose up --wait` until the `/health` check passes |

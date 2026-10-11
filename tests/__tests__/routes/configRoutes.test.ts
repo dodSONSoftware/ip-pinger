@@ -53,6 +53,7 @@ const fakePinger: IPinger = {
     ping_device: jest.fn(async (): Promise<[boolean, number]> => [true, 10]),
     updateConfig: updateConfig,
     isOperational: () => true,
+    isClosed: () => false,
     close: jest.fn(),
 };
 
@@ -321,6 +322,7 @@ describe("multiple route instances (state isolation)", () => {
         ping_device: pingDeviceA,
         updateConfig: updateConfigA,
         isOperational: () => true,
+        isClosed: () => false,
         close: jest.fn(),
     };
     const pingerB: IPinger = {
@@ -329,6 +331,7 @@ describe("multiple route instances (state isolation)", () => {
         ping_device: pingDeviceB,
         updateConfig: updateConfigB,
         isOperational: () => true,
+        isClosed: () => false,
         close: jest.fn(),
     };
 

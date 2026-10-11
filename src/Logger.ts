@@ -54,6 +54,11 @@ export class Logger implements ILogger {
         // Add Loki transport when configured and enabled
         const lokiCfg = getLokiConfig(config);
         if (lokiCfg.enabled && lokiCfg.url) {
+            // No `level` of its own — the transport inherits the logger
+            // level set below, so logLevel applies to Loki output too.
+            // Raising it reduces the Loki write rate (entries below the
+            // level never reach any transport); errors always pass at any
+            // valid configured level.
             transports.push(
                 new LokiTransport({
                     host: lokiCfg.url,
@@ -67,6 +72,9 @@ export class Logger implements ILogger {
         }
 
         this.winston = winston.createLogger({
+            // The configured logLevel gates ALL transports (console and
+            // Loki): entries below it are filtered here, before reaching
+            // any transport, so both sinks respect the same verbosity.
             level: LOG_LEVEL_MAP[this.globalLogLevelValue],
             levels: winston.config.npm.levels,
             transports,
@@ -154,6 +162,39 @@ export class Logger implements ILogger {
             originator,
             elapsed,
         });
+    }
+
+    /**
+     * Waits for the Loki transport to confirm receipt of every entry queued
+     * so far (its async flush() resolves only after Loki acknowledges).
+     * Resolves immediately when no Loki transport is configured. Bounded by
+     * timeoutMs so an unreachable Loki cannot stall the caller — e.g. the
+     * terminal error boundary, which must exit even when Loki is down.
+     */
+    async flush(timeoutMs: number): Promise<void> {
+        // Only the Loki transport implements an async flush(); the console
+        // transport does not. Duck-typed on purpose so this keeps working if
+        // the transport implementation is swapped.
+        const loki = this.winston.transports.find(
+            (t): t is Transport & { flush: () => Promise<unknown> } =>
+                typeof (t as unknown as { flush?: unknown }).flush === "function"
+        );
+        if (!loki) {
+            return;
+        }
+        let timer: NodeJS.Timeout | undefined;
+        try {
+            await Promise.race([
+                loki.flush().catch(() => undefined),
+                new Promise<void>((resolve) => {
+                    timer = setTimeout(resolve, timeoutMs);
+                }),
+            ]);
+        } finally {
+            if (timer) {
+                clearTimeout(timer);
+            }
+        }
     }
 
     // ********

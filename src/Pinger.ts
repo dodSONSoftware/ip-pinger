@@ -458,6 +458,18 @@ export class Pinger implements dli.IPinger {
         return this.fatal_session_error === undefined;
     }
 
+    /**
+     * True once close() has been requested. This is the caller's signal to
+     * stop re-entering run(): a closed pinger's run() resolves immediately
+     * (no wait, no cycle), so a loop that keeps calling it spins the event
+     * loop on microtasks only — the starved loop then blocks the in-flight
+     * close() from completing (its api_server.close() callback is an I/O
+     * event that never gets processed) and the process never exits.
+     */
+    public isClosed(): boolean {
+        return this.closed;
+    }
+
     // ****************************************************************
     // ******** IPinger properties
 

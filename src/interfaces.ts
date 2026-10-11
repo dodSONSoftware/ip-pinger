@@ -102,6 +102,10 @@ export interface IPinger {
     // False once the net-ping session has failed unexpectedly: the pinger
     // can no longer run cycles and only a process restart recovers it.
     isOperational(): boolean;
+    // True once close() has been requested. run() resolves (rather than
+    // rejects) exactly in this state, so a caller's run loop must use this
+    // to stop re-entering run() instead of spinning against a closed pinger.
+    isClosed(): boolean;
     close(): Promise<void>;
 }
 

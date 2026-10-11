@@ -31,7 +31,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.26 (release codename: Cobalt Fox)
+**Version:** 1.11.27 (release codename: Cobalt Fox)
 
 **Commands:**
 ```bash
@@ -128,7 +128,7 @@ Configuration can be updated at runtime:
 Settings split into two groups:
 
 - **Hot-reloadable** (applied immediately): `intervalSecs`, `devices`
-- **Restart-required** (active only after a process restart): `logLevel`, `lokiUrl`, `lokiEnabled`
+- **Restart-required** (active only after a process restart): `logLevel`, `lokiUrl`, `lokiEnabled`. `logLevel` gates all log output (console and Loki); entries below the configured level are neither printed nor sent
 
 `/write-config` and `/reload-config` report this via a machine-readable `restartRequired` response field.
 
@@ -139,7 +139,7 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 ## Key Patterns
 
 - **Route state:** instance-local — `createRoutes()` keeps its configuration, pinger, logger, startup baseline, and about payload (static metadata plus this instance's boot date) in closure scope, so multiple Pinger instances / route applications never share mutable state
-- **Error recovery:** Unhandled exceptions in the `main()` run loop are logged via `logger.write_error()`, and the loop continues — with one terminal exception: an unexpected net-ping session failure is fatal. The session's `"error"` handler records the failure (first error wins), closes the session, and the in-flight pings flushed by that close are treated as cancellations, not device-down observations. `Pinger.isOperational()` then returns false, `/health` responds 503, `run()` rejects with the session error, and `main()` closes the API server and exits non-zero so the container orchestrator can restart the process with a fresh session
+- **Error recovery:** Unhandled exceptions in the `main()` run loop are logged via `logger.write_error()`, and the loop continues — with two terminal exits: the loop breaks once `Pinger.isClosed()` is true (after `close()` resolved `run()`; re-entering `run()` on a closed pinger would spin the event loop on microtasks and starve the in-flight `close()`, so the process never reached `shutdown`'s `process.exit(0)`), and an unexpected net-ping session failure is fatal. The session's `"error"` handler records the failure (first error wins), closes the session, and the in-flight pings flushed by that close are treated as cancellations, not device-down observations. `Pinger.isOperational()` then returns false, `/health` responds 503, `run()` rejects with the session error, and `main()` closes the API server and exits non-zero so the container orchestrator can restart the process with a fresh session. A terminal error boundary for `uncaughtException`/`unhandledRejection` catches anything that escapes every in-app try/catch: it logs via the instance logger (console + Loki) or the console-only static writer during the pre-bootstrap window before the Logger exists, flushes the Loki transport with a bounded 3s timeout (an unreachable Loki must not stall the exit), and exits non-zero for an orchestrator restart; a re-entrancy guard ignores further terminal errors during the flush window
 - **Async route error handling:** Express 4 does not forward rejected async-handler promises to its error path, so the async route handlers (`/ping`, `/ping/:target`, `/metrics`) wrap their awaited work in try/catch and call `next(error)`. An application-level error middleware registered after all routes in `createRoutes()` logs each failure (warn when the forwarded error carries a 4xx status, error otherwise) and answers with the error's own status when it is an integer in 400-599 (e.g., body-parser's 400 for a malformed JSON body or 413 for a payload over the default limit), or a 500 otherwise (deferring to Express's finalhandler once headers are sent), so a route failure can never become an unhandled rejection that crashes the process
 - **Net-ping library:** Uses `createSession()` with IPv4, 16-byte packets, 1 retry, 2s timeout, 128 TTL
 - **Promise-based pinging:** `pingHost()` wrapped in Promise for async/await compatibility

@@ -29,6 +29,7 @@ const fakePinger: IPinger = {
     ping_device: pingDevice,
     updateConfig: jest.fn(),
     isOperational: () => true,
+    isClosed: () => false,
     close: jest.fn(),
 };
 

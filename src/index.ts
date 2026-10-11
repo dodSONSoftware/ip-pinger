@@ -40,7 +40,9 @@ async function initialize() {
     // initialize logger first
     logger = new Logger(configuration);
 
-    // log configuration (using static method since logger isn't fully initialized yet)
+    // The logger is already initialized above; this static call is
+    // intentional: the full configuration dump is console-only (docker
+    // logs), while Loki receives the structured lifecycle lines below.
     Logger.write_local_log(
         interfaces.LogLevel.Info,
         originator + ".initialize",
@@ -109,6 +111,18 @@ async function main() {
                 process.exit(1);
             }
         }
+
+        // run() resolves normally only when close() was requested (a fatal
+        // session error rejects instead, and the branch above already
+        // exited). A closed pinger's run() returns immediately — no wait,
+        // no cycle — so re-entering it here would spin the event loop on
+        // microtasks only: the starved loop never reaches the poll phase,
+        // the in-flight close() (awaiting its api_server.close() I/O
+        // callback) never completes, and shutdown's process.exit(0) is
+        // never reached. Break so close() can finish and the process exit.
+        if (pinger_dude.isClosed()) {
+            break;
+        }
     }
 }
 
@@ -116,5 +130,44 @@ async function main() {
 
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+// Terminal error boundary: anything reaching these handlers escaped every
+// in-app try/catch. It is logged (instance logger -> console + Loki when the
+// logger exists; console-only static writer during the pre-bootstrap window
+// before the Logger is constructed), the Loki transport is then flushed
+// explicitly, and the process exits non-zero so the container orchestrator
+// restarts it.
+//
+// The flush must be explicit: winston-loki batches entries and holds them
+// for its 5s default send interval, so a short sleep + process.exit would
+// kill the process before the terminal entry was ever sent. The exit timer
+// below is deliberately NOT unref'd, so it keeps the event loop alive and a
+// naturally draining loop cannot exit 0 ahead of the forced non-zero exit.
+const LOKI_FLUSH_TIMEOUT_MS = 3000;
+
+// Re-entrancy guard: after the first terminal error the process is already
+// doomed but the event loop still runs for the flush window — any further
+// terminal errors in that window are noise, so they are ignored rather than
+// logged as duplicate entries with a second exit timer.
+let terminating = false;
+async function terminal_exit(kind: string, err: unknown): Promise<void> {
+    if (terminating) {
+        return;
+    }
+    terminating = true;
+    const e = sysFunc.ensureError(err);
+    const detail = `${e.name}: ${e.message}${e.stack ? `\n${e.stack}` : ""}`;
+    if (logger) {
+        logger.write_error(originator + `.${kind}`, detail);
+        // Bounded: an unreachable Loki must not stall the shutdown.
+        await logger.flush(LOKI_FLUSH_TIMEOUT_MS);
+    } else {
+        Logger.write_local_log(interfaces.LogLevel.Error, originator + `.${kind}`, detail);
+    }
+    setTimeout(() => process.exit(1), 0);
+}
+
+process.on("uncaughtException", (err: unknown) => { void terminal_exit("uncaughtException", err); });
+process.on("unhandledRejection", (reason: unknown) => { void terminal_exit("unhandledRejection", reason); });
 
 main();

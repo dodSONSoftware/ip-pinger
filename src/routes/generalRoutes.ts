@@ -426,9 +426,14 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             // Read and validate the configuration file without touching running
             // application state. Applying disk configuration to the running
             // service is the job of /reload-config.
-            const [newConfig, config_text] = loadConfig(log_writer);
+            // No logger here: the catch below is the single logging point for
+            // a load failure, so one event produces one console + Loki entry
+            // (loadConfig's own failure log would duplicate it).
+            const [newConfig, config_text] = loadConfig();
 
-            // Log the read configuration
+            // Console-only by design: the full configuration dump stays in
+            // docker logs and is not sent to Loki (see the split-sink
+            // comments on /write-config and /reload-config below).
             Logger.write_local_log(
                 LogLevel.Info,
                 originator + ".read-config",
@@ -437,7 +442,12 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
 
             res.type(Json).status(OK).json(newConfig);
         } catch (error) {
-            res.status(_400).json({ message: `ERROR: Could not read config: ${ensureError(error).message}` });
+            // A failure here is a server-side condition (unreadable or
+            // invalid config file), even though the route contract answers
+            // it as a 400 — log it to console + Loki before answering.
+            const err = ensureError(error);
+            log_writer.write_error("generalRoutes.read-config", `Could not read config: ${err.name}: ${err.message}`);
+            res.status(_400).json({ message: `ERROR: Could not read config: ${err.message}` });
         }
     });
 
@@ -487,6 +497,8 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *               }
      *       400:
      *         description: Bad Request
+     *       500:
+     *         description: Unexpected server-side failure while processing the payload
      */
     app.route("/write-config").post((req: express.Request, res: express.Response) => {
         try {
@@ -510,8 +522,10 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                     return;
                 }
 
-                // Use loadConfig to properly parse and convert the config
-                const [newConfig, config_text] = loadConfig(log_writer);
+                // Use loadConfig to properly parse and convert the config.
+                // No logger: the catch below is the single logging point for
+                // a load failure (one event, one console + Loki entry).
+                const [newConfig, config_text] = loadConfig();
 
                 // Update internal route state (persisted configuration)
                 configuration = config_text;
@@ -528,7 +542,12 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                     ip_pinger.updateConfig(newConfig, config_text);
                 }
 
-                // Log the newly loaded configuration
+                // Intentional split sinks: the full configuration dump goes
+                // to the console only (docker logs) via the static writer,
+                // while the instance-logger summary of this update (the
+                // pinger's "Configuration updated." line) also reaches Loki.
+                // This keeps large, repetitive configuration dumps out of
+                // the Loki log store.
                 Logger.write_local_log(
                     LogLevel.Info,
                     originator + ".write-config",
@@ -551,9 +570,16 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 });
             }
         } catch (error) {
-            res.status(_400).json({
+            // Validation failures answer 400 via the branch above; anything
+            // reaching this catch is an unexpected server-side failure (a
+            // throw in dump/write/re-read) — answer 500 so client-error
+            // monitoring does not absorb a server failure, and log it to
+            // console + Loki before answering.
+            const err = ensureError(error);
+            log_writer.write_error("generalRoutes.write-config", `Unexpected error processing configuration payload: ${err.name}: ${err.message}`);
+            res.status(InternalServerError).json({
                 success: false,
-                message: `ERROR: Invalid configuration data received: ${ensureError(error).message}`
+                message: `ERROR: Internal error while processing the configuration payload: ${err.message}`
             });
         }
     });
@@ -583,8 +609,10 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      */
     app.route("/reload-config").get((req: express.Request, res: express.Response) => {
         try {
-            // Use loadConfig to properly parse and convert the config
-            const [newConfig, rawText] = loadConfig(log_writer);
+            // Use loadConfig to properly parse and convert the config.
+            // No logger: the catch below is the single logging point for a
+            // load failure (one event, one console + Loki entry).
+            const [newConfig, rawText] = loadConfig();
 
             // Update internal route state (persisted configuration)
             configuration = rawText;
@@ -599,7 +627,11 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 ip_pinger.updateConfig(newConfig, rawText);
             }
 
-            // Log the newly loaded configuration
+            // Intentional split sinks: the full configuration dump goes to
+            // the console only (docker logs) via the static writer, while
+            // the one-line summary below uses the instance logger and
+            // therefore also reaches Loki. This keeps large, repetitive
+            // configuration dumps out of the Loki log store.
             Logger.write_local_log(
                 LogLevel.Info,
                 originator + ".reload-config",
@@ -616,9 +648,14 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             });
 
         } catch (error) {
+            // A failure here is a server-side condition (unreadable or
+            // invalid config file), even though the route contract answers
+            // it as a 400 — log it to console + Loki before answering.
+            const err = ensureError(error);
+            log_writer.write_error("generalRoutes.reload-config", `Failed to reload configuration: ${err.name}: ${err.message}`);
             res.status(_400).json({
                 success: false,
-                message: `ERROR: Failed to reload configuration: ${ensureError(error).message}`
+                message: `ERROR: Failed to reload configuration: ${err.message}`
             });
         }
     });
@@ -806,8 +843,11 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     }
 
     async function getPings(devices: IDevice[]): Promise<PingResult[]> {
-        // iterate thru each device in devices
-        const results: PromiseSettledResult<PingResult>[] = await Promise.allSettled(
+        // iterate thru each device in devices. Every callback catches its
+        // own failure and returns an error result object, so no inner
+        // promise can reject — Promise.all resolves as soon as every
+        // device has a result.
+        return Promise.all(
             devices.map(async (device) => {
                 try {
                     // init
@@ -832,11 +872,6 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                     };
                 }
             })
-        );
-
-        // Extract the value from each fulfilled result (or reason if rejected)
-        return results.map(result =>
-            result.status === 'fulfilled' ? result.value : result.reason
         );
     }
 }
