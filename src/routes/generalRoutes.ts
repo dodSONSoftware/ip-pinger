@@ -334,12 +334,24 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *         content:
      *           application/json:
      *             schema:
-     *               type: object
-     *               properties:
-     *                 about:
-     *                   type: string
-     *                 version:
-     *                   type: string
+     *               type: array
+     *               items:
+     *                 type: object
+     *                 properties:
+     *                   ipAddress:
+     *                     type: string
+     *                     example: "192.168.1.1"
+     *                   isAlive:
+     *                     type: boolean
+     *                   roundTripMs:
+     *                     type: number
+     *                   source:
+     *                     type: string
+     *                   deviceType:
+     *                     type: string
+     *                   error:
+     *                     type: string
+     *                     description: Present only when the ping for this device failed
      */
     app.route("/ping").get(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
         try {
@@ -383,7 +395,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                 isAlive:
      *                   type: boolean
      *                   example: true
-     *                 roundtripMs:
+     *                 roundTripMs:
      *                   type: number
      *                   example: 45
      *       400:
@@ -428,10 +440,25 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *             schema:
      *               type: object
      *               properties:
-     *                 about:
+     *                 logLevel:
      *                   type: string
-     *                 version:
+     *                 intervalSecs:
+     *                   type: integer
+     *                 devices:
+     *                   type: array
+     *                   items:
+     *                     type: object
+     *                     properties:
+     *                       source:
+     *                         type: string
+     *                       ipAddress:
+     *                         type: string
+     *                       deviceType:
+     *                         type: string
+     *                 lokiUrl:
      *                   type: string
+     *                 lokiEnabled:
+     *                   type: boolean
      */
     app.route("/read-config").get((req: express.Request, res: express.Response) => {
         try {

@@ -27,6 +27,19 @@ function specServers(spec: { servers?: Array<{ url?: string }> }): string[] {
     return (spec.servers ?? []).map((server) => server.url ?? "");
 }
 
+interface JsonSchema {
+    type?: string;
+    properties?: Record<string, JsonSchema>;
+    items?: JsonSchema;
+}
+
+function responseSchema(spec: { paths?: Record<string, unknown> }, routePath: string, code: string): JsonSchema {
+    const route = spec.paths?.[routePath] as
+        | { get?: { responses?: Record<string, { content?: Record<string, { schema?: JsonSchema }> }> } }
+        | undefined;
+    return route?.get?.responses?.[code]?.content?.["application/json"]?.schema ?? {};
+}
+
 describe("Swagger route discovery", () => {
     it("discovers every documented route from the module-relative route path", () => {
         // The spec builder resolves routes relative to the swagger module itself,
@@ -67,5 +80,57 @@ describe("Swagger route discovery", () => {
             expect(url).not.toMatch(/^(https?:)?\/\//);
             expect(url).not.toMatch(/\b\d{1,3}(\.\d{1,3}){3}\b/);
         }
+    });
+});
+
+describe("Swagger response schemas", () => {
+    it("documents /ping as an array of per-device results matching the actual response shape", () => {
+        // The handler answers with the per-device ping results array, not an
+        // about/version envelope: the schema must say so, or Swagger UI's
+        // "Try it out" example shows a shape the endpoint never returns.
+        const schema = responseSchema(getSwaggerSpec(), "/ping", "200");
+
+        expect(schema.type).toBe("array");
+        expect(schema.items?.type).toBe("object");
+
+        const expectedProperties: Record<string, string> = {
+            ipAddress: "string",
+            isAlive: "boolean",
+            roundTripMs: "number",
+            source: "string",
+            deviceType: "string",
+            error: "string",
+        };
+        for (const [name, type] of Object.entries(expectedProperties)) {
+            expect(schema.items?.properties?.[name]?.type).toBe(type);
+        }
+    });
+
+    it("documents /ping/{target} with the actual roundTripMs field name", () => {
+        // The response field is roundTripMs (see the PingResult interface);
+        // a lowercased-t variant would mislead anyone generating clients.
+        const schema = responseSchema(getSwaggerSpec(), "/ping/{target}", "200");
+
+        expect(schema.properties?.["roundTripMs"]?.type).toBe("number");
+        expect(schema.properties?.["roundtripMs"]).toBeUndefined();
+    });
+
+    it("documents /read-config as the configuration object, not an about/version envelope", () => {
+        const schema = responseSchema(getSwaggerSpec(), "/read-config", "200");
+
+        expect(schema.type).toBe("object");
+        expect(schema.properties?.["logLevel"]?.type).toBe("string");
+        expect(schema.properties?.["intervalSecs"]?.type).toBe("integer");
+        expect(schema.properties?.["devices"]?.type).toBe("array");
+
+        const deviceItems = schema.properties?.["devices"]?.items;
+        expect(deviceItems?.type).toBe("object");
+        expect(deviceItems?.properties?.["source"]?.type).toBe("string");
+        expect(deviceItems?.properties?.["ipAddress"]?.type).toBe("string");
+        expect(deviceItems?.properties?.["deviceType"]?.type).toBe("string");
+
+        // The old envelope properties must no longer be advertised
+        expect(schema.properties?.["about"]).toBeUndefined();
+        expect(schema.properties?.["version"]).toBeUndefined();
     });
 });
