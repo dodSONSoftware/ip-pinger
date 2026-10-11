@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.35.
+**Release:** Cobalt Fox — version 1.11.36.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -220,6 +220,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.36 | Make `/about` report the live operational state: the `system.status` field is now computed from `isOperational()` at request time instead of serving the static `"healthy"` baseline, so `/about` no longer claims "healthy" while `/health` is already answering 503 after a fatal net-ping session failure; the fatal-session test now asserts both endpoints agree before and after the failure |
 | v1.11.35 | Make the net-ping module surface compile-checked: the ambient declaration in `src/types/net-ping.d.ts` now mirrors the 1.2.4 exports — adding the seven ICMP error classes (`RequestTimedOutError`, `DestinationUnreachableError`, `TimeExceededError`, `PacketTooBigError`, `ParameterProblemError`, `RedirectReceivedError`, `SourceQuenchError`) and dropping a `default` export the runtime module does not have — and `Pinger.ts` consumes the library through `import netPing = require("net-ping")`, so `createSession`, `NetworkProtocol`, and the `instanceof` operands in `getErrorType` are typed instead of `any` |
 | v1.11.34 | Treat an unexpected net-ping session close as fatal: a `"close"` event that the application did not initiate (an OS-level socket death with no preceding `"error"` event) now records a synthetic fatal error, so the run loop terminates, `/health` reports 503, and the orchestrator restarts the process — instead of the run loop hanging on a socket that can never send while `/health` still reports healthy. App-initiated closes (graceful `close()` and the fatal-`"error"` close) remain non-fatal, and regression tests pin both directions |
 | v1.11.33 | Keep the module logger alive from boot: it is seeded with the console-only bootstrap logger so a SIGINT/SIGTERM in the pre-configuration window logs and exits 0 instead of throwing a TypeError that the terminal boundary would report as a non-zero crash, and the terminal boundary flushes Loki only when the full Logger is in place |

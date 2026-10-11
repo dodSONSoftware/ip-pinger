@@ -256,6 +256,10 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     // Instance-owned about payload: the static metadata above is shared
     // read-only, but the system block copies this invocation's boot date so
     // a second createRoutes() call can never overwrite a first instance's.
+    // The system status is intentionally not copied here: it changes at
+    // runtime (a fatal net-ping session failure), so the /about handler
+    // computes it per request (see below) instead of serving the static
+    // "healthy" baseline.
     const instanceAbout: AboutInformation = {
         ...aboutInformation,
         system: {
@@ -305,7 +309,17 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                       format: date-time
      */
     app.route("/about").get((req: express.Request, res: express.Response) => {
-        res.type(Json).status(OK).json(instanceAbout);
+        // The operational state changes at runtime (a fatal net-ping
+        // session failure flips isOperational() to false), so compute the
+        // status at request time: an operator reading /about must never
+        // see "healthy" while /health is already answering 503.
+        res.type(Json).status(OK).json({
+            ...instanceAbout,
+            system: {
+                ...instanceAbout.system,
+                status: ip_pinger.isOperational() ? "healthy" : "unhealthy",
+            }
+        });
     });
 
     /**

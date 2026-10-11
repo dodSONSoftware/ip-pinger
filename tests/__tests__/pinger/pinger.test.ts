@@ -333,6 +333,17 @@ describe("Pinger.run() (fatal net-ping session error)", () => {
             }).on("error", reject);
         });
     }
+    function getAbout(port: number): Promise<{ status: number; body: Record<string, unknown> }> {
+        return new Promise((resolve, reject) => {
+            http.get({ host: "127.0.0.1", port: port, path: "/about" }, (res) => {
+                let data = "";
+                res.on("data", (chunk) => { data += chunk; });
+                res.on("end", () => {
+                    resolve({ status: res.statusCode ?? 0, body: JSON.parse(data) as Record<string, unknown> });
+                });
+            }).on("error", reject);
+        });
+    }
 
     it("run() rejects with the session error and in-flight pings are not recorded as device-down", async () => {
         // Spy logger so a fatal session error must surface as one
@@ -399,6 +410,9 @@ describe("Pinger.run() (fatal net-ping session error)", () => {
         const healthy = await getHealth(port);
         expect(healthy.status).toBe(200);
         expect(healthy.body).toMatchObject({ status: "healthy" });
+        // /about's system block reports the same operational state
+        const aboutHealthy = await getAbout(port);
+        expect((aboutHealthy.body.system as { status: string }).status).toBe("healthy");
 
         sessionErrorListener(session)(new Error("ICMP socket failed: ECONNRESET"));
 
@@ -406,6 +420,10 @@ describe("Pinger.run() (fatal net-ping session error)", () => {
         const unhealthy = await getHealth(port);
         expect(unhealthy.status).toBe(503);
         expect(unhealthy.body).toMatchObject({ status: "unhealthy" });
+        // ...and /about must not keep claiming "healthy"
+        const aboutUnhealthy = await getAbout(port);
+        expect(aboutUnhealthy.status).toBe(200);
+        expect((aboutUnhealthy.body.system as { status: string }).status).toBe("unhealthy");
     });
 
     it("a subsequent run() rejects immediately with the same error without starting another cycle", async () => {
