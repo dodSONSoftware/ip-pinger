@@ -60,5 +60,8 @@ jest.mock("net-ping", () => {
     };
 });
 
-// Set CONFIG_PATH environment variable for tests
-process.env.CONFIG_PATH = "/tmp/test-config.yml";
+// Set CONFIG_PATH environment variable for tests. Each Jest worker is its
+// own process (unique PID), so the per-worker path gives every test file a
+// config file no other worker can clobber: suites that seed this file and
+// then read it back through the API can never observe another suite's data.
+process.env.CONFIG_PATH = `/tmp/test-config-${process.pid}.yml`;

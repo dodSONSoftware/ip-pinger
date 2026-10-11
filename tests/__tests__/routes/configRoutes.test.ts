@@ -10,7 +10,10 @@ import { createRoutes } from "../../../src/routes/generalRoutes";
 import { NoOpLogger } from "../../../src/common";
 import type { IConfig, IDevice, IPinger } from "../../../src/interfaces";
 
-const CONFIG_FILE = "/tmp/test-config.yml";
+// The worker-unique path jest.setup.js assigned to CONFIG_PATH: this suite
+// seeds the file and reads it back through the API, so it must never share
+// a path with another suite running in a different worker.
+const CONFIG_FILE = process.env.CONFIG_PATH as string;
 
 const deviceA: IDevice = { source: "Device A", ipAddress: "10.0.0.1", deviceType: "sensor" };
 const deviceB: IDevice = { source: "Device B", ipAddress: "10.0.0.2", deviceType: "server" };

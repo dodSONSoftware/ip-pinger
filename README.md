@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.27.
+**Release:** Cobalt Fox — version 1.11.28.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -220,6 +220,7 @@ npm run test:watch
 
 | Version | Changes |
 |---------|---------|
+| v1.11.28 | Give each Jest worker its own config file: `CONFIG_PATH` in the test setup is now per-worker (`/tmp/test-config-<pid>.yml`), so the suites that seed the config file and read it back through the API can no longer clobber each other under parallel Jest workers |
 | v1.11.27 | Harden shutdown and terminal error handling: the main loop breaks once the pinger is closed (re-entering `run()` on a closed pinger spun the event loop and starved the in-flight `close()`), `uncaughtException`/`unhandledRejection` are logged to console + Loki, flushed to Loki with a bounded 3s timeout, then exit non-zero for a container restart, `POST /write-config` answers 500 for unexpected server-side failures (invalid payloads still 400), config-route load failures log at a single point, and `logLevel` now gates Loki output as well as console |
 | v1.11.26 | Answer forwarded errors that carry an HTTP status with that status instead of a blanket 500: a malformed JSON body (e.g., to `/write-config`) now returns the body-parser 400 and an oversized payload its 413, and client errors are logged at warn level instead of error |
 | v1.11.25 | Align the fixed API port to **32001** everywhere it is referenced: the `API_PORT` constant, the Dockerfile `EXPOSE`/healthcheck, `docker-compose.yml` port mapping and healthcheck, the README/CLAUDE port documentation, the `/about` endpoint description, and the port-related tests |

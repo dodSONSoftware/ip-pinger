@@ -1,6 +1,6 @@
 {
   "name": "ip-pinger",
-  "version": "1.11.27",
+  "version": "1.11.28",
   "description": "",
   "main": "index.js",
   "scripts": {

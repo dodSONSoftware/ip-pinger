@@ -5,10 +5,16 @@
 
 import { loadConfig, validateConfig, getConfigPath } from "../../../src/common";
 
+// The worker-unique path jest.setup.js assigned to CONFIG_PATH. This suite
+// writes the file directly, so it must use the same path the loaded
+// src/common module resolved, and never a path another worker might share.
+const CONFIG_FILE = process.env.CONFIG_PATH as string;
+
 describe("loadConfig", () => {
     beforeEach(() => {
-        // Reset the CONFIG_PATH env var before each test
-        process.env.CONFIG_PATH = "/tmp/test-config.yml";
+        // Reset the CONFIG_PATH env var to the worker's canonical path
+        // before each test
+        process.env.CONFIG_PATH = CONFIG_FILE;
         jest.resetModules();
     });
 
@@ -45,7 +51,7 @@ devices:
     ipAddress: "192.168.1.1"
     deviceType: sensor
 `;
-        fs.writeFileSync("/tmp/test-config.yml", tempConfig);
+        fs.writeFileSync(CONFIG_FILE, tempConfig);
 
         const [config, configText] = loadConfig();
 
@@ -75,7 +81,7 @@ devices:
     ipAddress: "192.168.1.3"
     deviceType: kiosk
 `;
-        fs.writeFileSync("/tmp/test-config.yml", tempConfig);
+        fs.writeFileSync(CONFIG_FILE, tempConfig);
 
         const [config, _] = loadConfig();
 
