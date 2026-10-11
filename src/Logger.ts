@@ -9,7 +9,14 @@ import LokiTransport from "winston-loki";
 import type { IConfig, ILogger } from "./interfaces";
 import { LogLevel } from "./interfaces";
 import { getLokiConfig } from "./common";
-import { convert_from_log_level_enum_to_string, elapsed_time, get_timestamp } from "./systemFunctions";
+import { convert_from_log_level_enum_to_string, elapsed_time, ensureError, get_timestamp } from "./systemFunctions";
+
+// While a Loki outage is ongoing the batcher keeps retrying (after the
+// first failure the library's circuit breaker drops to one attempt per
+// minute), and every failed attempt fires onConnectionError. The warn
+// below fires on the first failure and then at most once per this
+// interval, carrying how many failed sends it subsumes.
+const LOKI_WARN_INTERVAL_MS = 5 * 60 * 1000;
 
 // Map our LogLevel enum to Winston level priority
 const LOG_LEVEL_MAP: Record<LogLevel, string> = {
@@ -63,6 +70,12 @@ export class Logger implements ILogger {
                 new LokiTransport({
                     host: lokiCfg.url,
                     labels: { app: "ip-pinger", env: "production" },
+                    // The library stays silent on connection errors (its
+                    // batch loop swallows the failure and requeues the
+                    // batch), so without this hook an outage is invisible
+                    onConnectionError: (error: unknown): void => {
+                        this.onLokiConnectionError(error);
+                    },
                     format: winston.format.combine(
                         winston.format.timestamp(),
                         winston.format.json()
@@ -80,6 +93,21 @@ export class Logger implements ILogger {
             transports,
             exitOnError: false,
         });
+
+        // Log the logging setup itself: whether Loki is active is
+        // otherwise invisible at boot — a disabled or misconfigured
+        // transport produces no other signal, and entries would silently
+        // never arrive in Loki.
+        if (lokiCfg.enabled && lokiCfg.url) {
+            this.write_info("Logger.ctor", `Loki transport active: ${lokiCfg.url}`);
+        } else if (lokiCfg.enabled) {
+            // Unreachable through validated configuration (the schema
+            // requires lokiUrl when lokiEnabled is true) — defensive for
+            // a Logger constructed with a raw, unvalidated config.
+            this.write_warn("Logger.ctor", `Loki transport disabled: lokiEnabled is true but lokiUrl is missing`);
+        } else {
+            this.write_info("Logger.ctor", `Loki transport disabled (lokiEnabled is false)`);
+        }
     }
 
     // ********
@@ -88,6 +116,12 @@ export class Logger implements ILogger {
     private readonly globalLogLevelValue: LogLevel = LogLevel.None;
     private readonly globalLogLevelName: string = "";
     private readonly winston: winston.Logger;
+    // Rate-limiter state for the Loki connection-failure warn (see
+    // onLokiConnectionError): total failed sends since construction,
+    // the total at the last warn, and the last warn's timestamp.
+    private lokiFailureCount = 0;
+    private lokiFailuresAtLastWarn = 0;
+    private lokiLastWarnAt = 0;
 
     // ********
     // ******** ILogger functions
@@ -165,6 +199,33 @@ export class Logger implements ILogger {
     }
 
     /**
+     * winston-loki hook for every failed POST to Loki. The first failure
+     * warns immediately; while the outage continues, at most one further
+     * warn per LOKI_WARN_INTERVAL_MS, carrying how many failed sends it
+     * subsumes (the circuit breaker already limits retries to one per
+     * minute after the first failure, so a long outage produces one warn
+     * per five minutes, not one per retry). The warn is routed through
+     * winston, so it reaches the console immediately and is queued for
+     * Loki — when the connection recovers, the record of the outage is
+     * delivered there as well.
+     */
+    private onLokiConnectionError(error: unknown): void {
+        this.lokiFailureCount++;
+        const now = Date.now();
+        if (this.lokiFailureCount > 1 && now - this.lokiLastWarnAt < LOKI_WARN_INTERVAL_MS) {
+            return;
+        }
+        const suppressed = this.lokiFailureCount - this.lokiFailuresAtLastWarn - 1;
+        this.lokiFailuresAtLastWarn = this.lokiFailureCount;
+        this.lokiLastWarnAt = now;
+        const err = ensureError(error);
+        const detail = suppressed > 0
+            ? `Loki request failed: ${err.message} (${suppressed} earlier failure(s) not repeated)`
+            : `Loki request failed: ${err.message}`;
+        this.write_warn("Logger.loki", detail);
+    }
+
+    /**
      * Waits for the Loki transport to confirm receipt of every entry queued
      * so far (its async flush() resolves only after Loki acknowledges).
      * Resolves immediately when no Loki transport is configured. Bounded by
@@ -184,12 +245,19 @@ export class Logger implements ILogger {
         }
         let timer: NodeJS.Timeout | undefined;
         try {
-            await Promise.race([
-                loki.flush().catch(() => undefined),
-                new Promise<void>((resolve) => {
-                    timer = setTimeout(resolve, timeoutMs);
+            const outcome = await Promise.race([
+                loki.flush().then((): "flushed" => "flushed").catch((): "failed" => "failed"),
+                new Promise<"timeout">((resolve) => {
+                    timer = setTimeout(() => resolve("timeout"), timeoutMs);
                 }),
             ]);
+            // The bounded wait exists so an unreachable Loki cannot stall
+            // the caller (the terminal error boundary must exit even when
+            // Loki is down) — when the timeout wins, say so, because the
+            // queued entries may never have been delivered.
+            if (outcome === "timeout") {
+                this.write_warn("Logger.flush", `Loki flush timed out after ${timeoutMs}ms; queued log entries may not have reached Loki.`);
+            }
         } finally {
             if (timer) {
                 clearTimeout(timer);

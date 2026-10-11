@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Cobalt Fox — version 1.11.40.
+**Release:** Carbon Fox — version 1.12.0.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -125,14 +125,17 @@ configuration option.
 |--------|-------------|---------|--------------|
 | `logLevel` | Logging verbosity (applies to both console and Loki output) | required | `debug`, `info`, `warn`, `error` |
 | `intervalSecs` | Ping cycle interval | required | Positive integer |
-| `devices` | Array of devices to ping | required | Array of device objects |
+| `devices` | Array of devices to ping | required | Non-empty array of device objects (at least one device) |
 | `lokiUrl` | Loki endpoint for structured log forwarding | unset | URL; required when `lokiEnabled` is `true` |
 | `lokiEnabled` | Enable the Loki log transport | `false` | `true`, `false` |
 
 `logLevel` and `intervalSecs` have no defaults: the Zod schema rejects a
 configuration that omits either, so a missing value fails the service at
 startup (or at `/write-config`/`/reload-config` validation) instead of
-falling back to an implicit value.
+falling back to an implicit value. `devices` must contain at least one
+device: an empty list is rejected at startup and at
+`/write-config`/`/reload-config` validation, so the service can never run
+(or be reconfigured to) a no-op monitoring loop.
 
 ### Device Types
 
@@ -158,7 +161,35 @@ Settings split into two groups:
 - **Restart-required** (active only after a process restart): `logLevel`, `lokiUrl`, `lokiEnabled`. `logLevel` gates all log output (console and Loki); entries below the configured level are neither printed nor sent
 
 `/write-config` and `/reload-config` report this via a machine-readable
-`restartRequired` field in the response.
+`restartRequired` field in the response, and log at info level which
+specific settings require the restart when the field is `true`.
+
+## Logging
+
+Log output goes to two sinks, both gated by `logLevel` (entries below the
+configured level are neither printed nor sent):
+
+- **Console** — human-readable lines:
+  `[timestamp][elapsed][LEVEL][originator] message`. Errors go to stderr,
+  everything else to stdout.
+- **Loki** — JSON lines labeled `app="ip-pinger"`, `env="production"`,
+  active only when `lokiEnabled` is `true` and `lokiUrl` is set. The
+  transport logs its own state once at startup (`Loki transport active:
+  <url>` or disabled), and send failures emit a warn — the first
+  immediately, then at most one per five minutes while the failure
+  continues (carrying how many failures it subsumes) — because the
+  winston-loki batcher otherwise swallows them and retries silently.
+
+Full configuration dumps (`Configuration loaded:`, `Configuration read:`,
+`Configuration reloaded:`) go to the console only; the one-line structured
+summaries also reach Loki.
+
+| Level | Examples |
+|-------|---------|
+| `error` | A device failed a scheduled ping, or transitioned down (`went down`); fatal net-ping session failure; configuration, file, or route (5xx) failure |
+| `info` | A device recovered (`is back up`); configuration applied or reloaded; which settings require a restart; lifecycle events (boot, API server, shutdown) |
+| `warn` | A `/write-config` payload rejected by validation; Loki send failures; a duplicate shutdown signal ignored |
+| `debug` | Per-cycle detail (cycle start/complete, per-device success), one line per HTTP request, device-removal bookkeeping |
 
 ## API Endpoints
 
@@ -223,40 +254,9 @@ npm run test:coverage
 npm run test:watch
 ```
 
-## Recent Changes
+## Release History
 
-| Version | Changes |
-|---------|---------|
-| v1.11.40 | Remove dead code from `systemFunctions`: `get_timestamp` no longer takes the `include_ms` parameter (every caller passed `false`, so the milliseconds branch was unreachable) and `read_file` drops a redundant `.toString()` on the already-decoded string |
-| v1.11.39 | Fix the typos in the `/about` description text ("round- trip" → "round-trip", "monitoring - cycle duration" → "monitoring cycle duration", "network errors.These" → "network errors. These") |
-| v1.11.38 | Align the Swagger response schemas with the actual payloads: `/ping` now documents the per-device results array (previously an `about`/`version` object the endpoint never returns), `/read-config` documents the parsed configuration object, and `/ping/{target}` uses the real `roundTripMs` field name (the docs said `roundtripMs`); regression tests pin the documented shapes |
-| v1.11.37 | Align the configuration-options table with the Zod schema: `logLevel` and `intervalSecs` are required (the documented defaults of `info` and `60` never existed — omitting either fails validation at startup or at `/write-config`/`/reload-config`), and `lokiUrl`/`lokiEnabled` are now listed with their actual optionality; regression tests pin the required-field contract |
-| v1.11.36 | Make `/about` report the live operational state: the `system.status` field is now computed from `isOperational()` at request time instead of serving the static `"healthy"` baseline, so `/about` no longer claims "healthy" while `/health` is already answering 503 after a fatal net-ping session failure; the fatal-session test now asserts both endpoints agree before and after the failure |
-| v1.11.35 | Make the net-ping module surface compile-checked: the ambient declaration in `src/types/net-ping.d.ts` now mirrors the 1.2.4 exports — adding the seven ICMP error classes (`RequestTimedOutError`, `DestinationUnreachableError`, `TimeExceededError`, `PacketTooBigError`, `ParameterProblemError`, `RedirectReceivedError`, `SourceQuenchError`) and dropping a `default` export the runtime module does not have — and `Pinger.ts` consumes the library through `import netPing = require("net-ping")`, so `createSession`, `NetworkProtocol`, and the `instanceof` operands in `getErrorType` are typed instead of `any` |
-| v1.11.34 | Treat an unexpected net-ping session close as fatal: a `"close"` event that the application did not initiate (an OS-level socket death with no preceding `"error"` event) now records a synthetic fatal error, so the run loop terminates, `/health` reports 503, and the orchestrator restarts the process — instead of the run loop hanging on a socket that can never send while `/health` still reports healthy. App-initiated closes (graceful `close()` and the fatal-`"error"` close) remain non-fatal, and regression tests pin both directions |
-| v1.11.33 | Keep the module logger alive from boot: it is seeded with the console-only bootstrap logger so a SIGINT/SIGTERM in the pre-configuration window logs and exits 0 instead of throwing a TypeError that the terminal boundary would report as a non-zero crash, and the terminal boundary flushes Loki only when the full Logger is in place |
-| v1.11.32 | Remove dead code: the write-only configuration string in the route closure (the raw text lives on the Pinger), the unused `_418`/`Text` route constants, and the unused `systemFunctions` exports (`sleep`, `sleep_from_start`, `randomInt`, `elapsed_time_seconds`, `get_timestamp_iso`, `convert_from_log_level_string_to_enum` — the last also carried a stale TODO) |
-| v1.11.31 | Correct the ambient `net-ping` type declaration: `NetworkProtocol` now carries the library actual values (IPv4 = 1, IPv6 = 2) instead of 0/1, so a future value import of the enum cannot silently select the wrong address family |
-| v1.11.30 | Align the documented `pinged_errors_total` taxonomy with the implementation: the error types are `timeout`, `host_unreachable`, `ttl_exceeded`, and `other` (there is no `network_unreachable` — net-ping cannot distinguish host- from network-unreachable), and the stale comment in the stale-series test that described gauge rebuilding now describes the process-lived metrics it actually exercises |
-| v1.11.29 | Make the `write_file` temporary filename unique per call (`<target>.<pid>.<n>.tmp`): with a fixed `<target>.tmp` name, a second writer against the same mount could overwrite the temp file before the first writer's rename, persisting the second writer's content as the first caller's successful write |
-| v1.11.28 | Give each Jest worker its own config file: `CONFIG_PATH` in the test setup is now per-worker (`/tmp/test-config-<pid>.yml`), so the suites that seed the config file and read it back through the API can no longer clobber each other under parallel Jest workers |
-| v1.11.27 | Harden shutdown and terminal error handling: the main loop breaks once the pinger is closed (re-entering `run()` on a closed pinger spun the event loop and starved the in-flight `close()`), `uncaughtException`/`unhandledRejection` are logged to console + Loki, flushed to Loki with a bounded 3s timeout, then exit non-zero for a container restart, `POST /write-config` answers 500 for unexpected server-side failures (invalid payloads still 400), config-route load failures log at a single point, and `logLevel` now gates Loki output as well as console |
-| v1.11.26 | Answer forwarded errors that carry an HTTP status with that status instead of a blanket 500: a malformed JSON body (e.g., to `/write-config`) now returns the body-parser 400 and an oversized payload its 413, and client errors are logged at warn level instead of error |
-| v1.11.25 | Align the fixed API port to **32001** everywhere it is referenced: the `API_PORT` constant, the Dockerfile `EXPOSE`/healthcheck, `docker-compose.yml` port mapping and healthcheck, the README/CLAUDE port documentation, the `/about` endpoint description, and the port-related tests |
-| v1.11.24 | Make the Docker config mount work with `POST /write-config`: the host config is now a **directory** owned by uid 1000 (mounted at `/app/config`), because atomic temp-file+rename persistence can never replace a single-file bind mount (`EBUSY`) or write into a `root`-owned directory (`EACCES`); `docker-refresh.sh` pre-creates and chowns the config directory before startup and blocks on `docker compose up --wait` until the `/health` check passes |
-| v1.11.23 | Apply hot-reloaded configuration at the cycle boundary and wake the run loop on a config change or `close()`: a new `intervalSecs` takes effect without waiting out the old interval, and shutdown stops the loop immediately instead of sleeping out the cycle |
-| v1.11.22 | Validate the `/ping/:target` target as an IPv4 address before pinging: invalid targets are rejected with a 400 using the same shared schema as configured device addresses, instead of reaching net-ping |
-| v1.11.21 | Stop advertising a deployment-specific server address in the OpenAPI document: the hard-coded `servers` URL is removed so Swagger UI targets the origin serving `/swagger` |
-| v1.11.20 | Make the `/about` boot date instance-local: each route registration carries its own boot date instead of mutating a shared module-level value |
-| v1.11.19 | Forward async route failures to Express error handling: `/ping`, `/ping/:target`, and `/metrics` failures are answered with a logged 500 JSON response instead of an unhandled rejection |
-| v1.11.18 | Treat a net-ping session failure as fatal: `/health` reports 503 and the process exits non-zero for a container-managed restart |
-| v1.11.0 | Add graceful shutdown (`Pinger.close()`) and remove unused public surface |
-| v1.9.5 | Remove unused port 9090 references |
-| v1.9.4 | Add README.md documentation |
-| v1.9.3 | Fix 'metric already registered' error on config reload |
-| v1.9.2 | Properly remove extra/missing metrics on config change |
-| v1.9.1 | Prevent memory leak in rebuildPrometheusGauges() |
-| v1.9.0 | Add histogram metrics and additional Prometheus telemetry |
+See [CHANGELOG.md](CHANGELOG.md) for the per-version release history.
 
 ## License
 

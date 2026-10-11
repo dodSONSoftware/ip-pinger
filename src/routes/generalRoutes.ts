@@ -4,7 +4,7 @@
  */
 
 import type express from "express";
-import { IPV4_SCHEMA, validateConfig, getConfigPath, loadConfig, getRestartRequiredSettings, requiresRestart } from "../common";
+import { IPV4_SCHEMA, validateConfig, getConfigPath, loadConfig, getRestartRequiredSettings, requiresRestart, RESTART_REQUIRED_FIELDS } from "../common";
 import type { RestartRequiredSettings } from "../common";
 import { ensureError, write_file } from "../systemFunctions";
 import type { ILogger, IPinger, IConfig, IDevice } from "../interfaces";
@@ -573,6 +573,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 // The comparison baseline is captured at boot and never updated here,
                 // so later reloads keep reporting restart-required accurately.
                 const restartRequired = requiresRestart(newConfig, startup_settings);
+                logRestartRequired("write-config", newConfig, restartRequired);
 
                 // Apply only the hot-reloadable settings (intervalSecs, devices)
                 // to the running pinger.
@@ -601,6 +602,13 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 });
 
             } else {
+                // An invalid payload answers 400 but would otherwise leave
+                // no trace of why the write failed — log the validation
+                // errors, not just the fact of the rejection
+                log_writer.write_warn(
+                    originator + ".write-config",
+                    `Configuration payload rejected: ${validData.errors.join("; ")}`
+                );
                 res.status(_400).json({
                     success: false,
                     message: `VALIDATION ERROR: Invalid configuration data received.`,
@@ -657,6 +665,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
 
             // Compare startup-owned settings against the values still active
             const restartRequired = requiresRestart(newConfig, startup_settings);
+            logRestartRequired("reload-config", newConfig, restartRequired);
 
             // Apply only the hot-reloadable settings (intervalSecs, devices)
             // to the running pinger
@@ -864,6 +873,23 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             message: `ERROR: ${req.method} ${req.url} failed: ${err.message}`
         });
     });
+
+    // The response reports restartRequired as a bare boolean; the log
+    // names the specific settings, because the log is where an operator
+    // checks whether a just-pushed logLevel/lokiUrl/lokiEnabled change
+    // took effect — it does not, those stay startup-owned until a restart
+    function logRestartRequired(where: string, config: IConfig, restartRequired: boolean): void {
+        if (!restartRequired) {
+            return;
+        }
+        const restartFields = RESTART_REQUIRED_FIELDS.filter(
+            (field) => config[field] !== startup_settings[field]
+        );
+        log_writer.write_info(
+            originator + "." + where,
+            `Restart required for: ${restartFields.join(", ")} (active only after a process restart).`
+        );
+    }
 
     // Ping helpers live in this invocation's closure so every request is
     // answered by the pinger instance these routes were registered with.

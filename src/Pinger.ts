@@ -210,12 +210,27 @@ export class Pinger implements dli.IPinger {
         const msg = `Pinger class initialized. ${this.configuration.devices.length} Devices.`;
         logger.write_info(this.originator + ".ctor", msg);
         logger.write_info(this.originator + ".ctor", `Ping Interval Cycle: ${this.configuration.intervalSecs} seconds.`);
+
+        // One line per device so each is individually searchable in the
+        // log store from boot time
+        for (const device of this.configuration.devices) {
+            logger.write_info(this.originator + ".ctor", `Configured device: ${device.source} (${device.ipAddress}) [${device.deviceType}]`);
+        }
     } // end-constructor
 
     // Previous device list, keyed by device key, for tracking removals
     // (baselined in the ctor; kept as IDevice entries because device names
     // may themselves contain the ':' key separator)
     private previousDevices: Map<string, dli.IDevice>;
+
+    // Last observed alive state per device key, for edge-triggered
+    // transition logging ("went down" / "is back up"). The first
+    // observation of a device baselines silently — a device that was
+    // already down before this process first pinged it did not transition.
+    // Entries are removed with the device's metrics on configuration reload
+    // so a re-added device baselines fresh instead of logging a stale
+    // transition against its removed state.
+    private device_alive_state: Map<string, boolean> = new Map();
 
     // ****************************************************************
     // ******** Public methods for runtime configuration updates
@@ -275,6 +290,9 @@ export class Pinger implements dli.IPinger {
 
         for (const device of removedDevices) {
             this.removeDeviceMetrics(device);
+            // Drop the transition-tracking state too, so a re-added device
+            // baselines silently instead of logging a stale transition
+            this.device_alive_state.delete(this.getDeviceKey(device.ipAddress, device.source, device.deviceType));
         }
 
         this.previousDevices = new Map(
@@ -527,6 +545,26 @@ export class Pinger implements dli.IPinger {
                     upCount++;
                 } else {
                     downCount++;
+                }
+
+                // Edge-triggered transition log: record the state change
+                // itself as one identifiable line, so an outage and its
+                // recovery are events in the log store rather than only
+                // runs of the per-cycle per-device lines. The per-cycle
+                // failure error (ping_idevice) still fires for every
+                // failing cycle, so a steady outage keeps its per-cycle
+                // evidence; this adds exactly one line at each edge.
+                const device_key = this.getDeviceKey(ipAddress, deviceName, deviceType);
+                const previous_alive = this.device_alive_state.get(device_key);
+                if (previous_alive === undefined) {
+                    this.device_alive_state.set(device_key, isAlive);
+                } else if (previous_alive !== isAlive) {
+                    this.device_alive_state.set(device_key, isAlive);
+                    if (isAlive) {
+                        this.logger.write_info(this.originator + ".run", `"${ipAddress}" (${deviceName}) is back up, ${roundTripMs}ms.`, cycle_start_date);
+                    } else {
+                        this.logger.write_error(this.originator + ".run", `"${ipAddress}" (${deviceName}) went down.`, cycle_start_date);
+                    }
                 }
 
                 // Update per-device status gauge

@@ -70,7 +70,17 @@ async function initialize() {
 
 // ******** graceful shutdown
 
+// Guards against a second signal (or a signal racing a terminal exit)
+// re-entering shutdown while the first is still running: a double close()
+// and double process.exit() in flight would make the shutdown sequence
+// unexplainable in the logs, so the duplicate is logged and dropped
+let shutdown_in_progress = false;
 async function shutdown(signal: string) {
+    if (shutdown_in_progress) {
+        logger.write_warn(originator + ".shutdown", `Received ${signal} while shutdown is already in progress; ignoring.`);
+        return;
+    }
+    shutdown_in_progress = true;
     logger.write_info(originator + ".shutdown", `Received ${signal}, shutting down.`);
     try {
         await pinger_dude.close();

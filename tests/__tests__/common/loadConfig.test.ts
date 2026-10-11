@@ -113,6 +113,23 @@ devices:
         }
     });
 
+    it("rejects a configuration with no devices, naming the field", () => {
+        const yaml = `
+logLevel: debug
+intervalSecs: 30
+devices: []
+`;
+
+        const result = validateConfig(yaml);
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            const errors = result.errors.join(" ");
+            expect(errors).toContain("at least one device");
+            expect(errors).toContain("devices");
+        }
+    });
+
     it("should return ok=false for invalid YAML syntax", () => {
         const invalidYaml = `
 logLevel: debug

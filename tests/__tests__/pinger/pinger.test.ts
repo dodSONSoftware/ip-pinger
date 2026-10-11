@@ -811,6 +811,121 @@ describe("Pinger.run() (latency metrics only record successful pings)", () => {
     }, 20000);
 });
 
+describe("Pinger.run() (edge-triggered transition logging)", () => {
+    // Spy logger so the transition lines can be asserted in isolation.
+    // The Pinger ctor also writes info lines through it, so assertions
+    // filter on message content instead of raw call counts.
+    function makeSpyLogger(): { logger: ILogger; write_info: jest.Mock; write_error: jest.Mock } {
+        const write_info = jest.fn();
+        const write_error = jest.fn();
+        const logger: ILogger = {
+            global_log_level: (): LogLevel => LogLevel.None,
+            global_log_level_string: (): string => "None",
+            write_info: write_info,
+            write_warn: jest.fn(),
+            write_error: write_error,
+            write_debug: jest.fn(),
+        };
+        return { logger, write_info, write_error };
+    }
+
+    it("baselines the first observation silently, then logs down at error and up at info", async () => {
+        const { logger, write_info, write_error } = makeSpyLogger();
+        const pinger = new Pinger(makeConfig([deviceA], { intervalSecs: 1 }), "initial config", logger, new Date(), 0);
+        pingers.push(pinger);
+        await pinger.start();
+
+        const session = latestSession();
+        const { RequestTimedOutError } = mockNetPing();
+        let alive = true;
+        session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            if (alive) {
+                const sent = new Date();
+                callback(null, host, sent, new Date(sent.getTime() + 7));
+            } else {
+                callback(new RequestTimedOutError(), host, new Date(), new Date());
+            }
+        });
+
+        const runPromise = pinger.run();
+
+        // Cycle 1 (up): the first observation baselines silently — a
+        // device already down before this process first pinged it did not
+        // transition, so neither kind of line may exist yet
+        await waitFor(() => session.pingHost.mock.calls.length >= 1);
+        expect(write_info.mock.calls.map((c) => c[1]).filter((m: string) => m.includes("is back up"))).toHaveLength(0);
+        expect(write_error.mock.calls.map((c) => c[1]).filter((m: string) => m.includes("went down"))).toHaveLength(0);
+
+        // Cycle 2 (down): exactly one "went down" error, alongside the
+        // pre-existing per-ping failure error
+        alive = false;
+        await waitFor(() => write_error.mock.calls.map((c) => c[1]).filter((m: string) => m.includes("went down")).length >= 1);
+
+        // Cycle 3 (up): one "is back up" info carrying the roundtrip
+        alive = true;
+        await waitFor(() => write_info.mock.calls.map((c) => c[1]).filter((m: string) => m.includes("is back up")).length >= 1);
+
+        await pinger.close();
+        await runPromise;
+
+        const infoMsgs = write_info.mock.calls.map((c) => c[1]);
+        const errMsgs = write_error.mock.calls.map((c) => c[1]);
+        expect(infoMsgs.filter((m) => m.includes("is back up"))).toHaveLength(1);
+        expect(infoMsgs.filter((m) => m.includes("is back up"))[0]).toContain(`(${deviceA.source})`);
+        expect(infoMsgs.filter((m) => m.includes("is back up"))[0]).toContain("7ms");
+        expect(errMsgs.filter((m) => m.includes("went down"))).toHaveLength(1);
+        expect(errMsgs.filter((m) => m.includes("went down"))[0]).toContain(`(${deviceA.source})`);
+        // The per-cycle per-ping failure line is untouched: exactly one,
+        // from the single failed cycle
+        expect(errMsgs.filter((m) => m.includes("Device Error"))).toHaveLength(1);
+    }, 15000);
+
+    it("re-adding a removed device baselines silently instead of logging a stale transition", async () => {
+        const { logger, write_info, write_error } = makeSpyLogger();
+        const pinger = new Pinger(makeConfig([deviceA, deviceB], { intervalSecs: 1 }), "initial config", logger, new Date(), 0);
+        pingers.push(pinger);
+        await pinger.start();
+
+        const session = latestSession();
+        const { RequestTimedOutError } = mockNetPing();
+        let deviceAUp = false; // A is down until just before it is re-added
+        session.pingHost.mockImplementation((host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            if (host !== deviceA.ipAddress || deviceAUp) {
+                const sent = new Date();
+                callback(null, host, sent, new Date(sent.getTime() + 3));
+            } else {
+                callback(new RequestTimedOutError(), host, new Date(), new Date());
+            }
+        });
+
+        const runPromise = pinger.run();
+
+        // Cycle 1: A down (baselined), B up (baselined)
+        await waitFor(() => session.pingHost.mock.calls.length >= 2);
+        // Remove A while it is down; the update applies at the cycle
+        // boundary (or immediately, if the boundary has passed)
+        pinger.updateConfig(makeConfig([deviceB], { intervalSecs: 1 }), "remove device A");
+        // Cycle 2: only B is pinged
+        await waitFor(() => session.pingHost.mock.calls.length >= 3);
+        // A recovers and is re-added
+        deviceAUp = true;
+        pinger.updateConfig(makeConfig([deviceB, deviceA], { intervalSecs: 1 }), "re-add device A");
+        // Cycle 3: B and A are pinged; A's first observation since the
+        // removal must baseline silently — if the removal had kept its
+        // stale "down" state, an "is back up" line would appear here
+        await waitFor(() => session.pingHost.mock.calls.length >= 5);
+
+        await pinger.close();
+        await runPromise;
+
+        const transitionLines = [
+            ...write_info.mock.calls.map((c) => c[1]),
+            ...write_error.mock.calls.map((c) => c[1]),
+        ].filter((m: string) => m.includes("is back up") || m.includes("went down"));
+        expect(transitionLines).toHaveLength(0);
+    }, 15000);
+});
+
 describe("Pinger error classification (getErrorType)", () => {
     function makeClassifier(): (error: Error) => string {
         // private method; construct without start() — no HTTP server involved

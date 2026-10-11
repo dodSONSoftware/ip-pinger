@@ -15,13 +15,14 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 │   ├── Pinger.ts         # Core pinger class using net-ping library
 │   ├── Logger.ts         # Logging utility with configurable levels
 │   ├── common.ts         # Configuration loading with Zod validation
+│   ├── config.yml        # Runtime configuration (YAML format); copied to dist/ by the build
 │   ├── interfaces.ts     # TypeScript interfaces
 │   ├── systemFunctions.ts # Utility functions
 │   ├── swagger.ts        # Swagger UI setup
 │   └── version.ts        # APP_VERSION / APP_NAME — version source of truth
 ├── tests/__tests__/      # Jest test files
 ├── dist/                 # Compiled output (generated)
-├── config.yml            # Runtime configuration (YAML format)
+├── CHANGELOG.md          # Per-version release history (newest first)
 └── package.json          # Dependencies and scripts
 ```
 
@@ -31,7 +32,7 @@ Claude Code will remain within this directory (`ip-pinger`) and its subdirectori
 
 An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
 
-**Version:** 1.11.40 (release codename: Cobalt Fox)
+**Version:** 1.12.0 (release codename: Carbon Fox)
 
 **Commands:**
 ```bash
@@ -75,6 +76,8 @@ while (!closed):
     process results:
         set prometheus_Pinger_Up_Gauge[ip, name] = alive ? 1 : 0
         set prometheus_Pinger_Roundtrip_Gauge[ip, name] = roundtrip_ms
+        log a transition line if the device's alive state changed
+        (error "went down", info "is back up"; first observation baselines silently)
     apply any config update pending since the cycle started
     wait for remainder of interval_secs cycle (woken early by a config change or close())
 ```
@@ -115,7 +118,7 @@ devices:
     deviceType: sensor|server|kiosk
 ```
 
-Each device identity (`ipAddress` + `source` + `deviceType`) must be unique: configurations containing an exact duplicate device definition are rejected at validation time. Sharing an IP address across different sources or device types is valid — those produce distinct Prometheus series.
+Each device identity (`ipAddress` + `source` + `deviceType`) must be unique: configurations containing an exact duplicate device definition are rejected at validation time. Sharing an IP address across different sources or device types is valid — those produce distinct Prometheus series. The `devices` list must contain at least one device: an empty list is rejected at validation time (startup and `/write-config`/`/reload-config`), so the running service can never be reduced to zero monitored devices.
 
 ### Hot-Reload Configuration
 
@@ -130,7 +133,7 @@ Settings split into two groups:
 - **Hot-reloadable** (applied immediately): `intervalSecs`, `devices`
 - **Restart-required** (active only after a process restart): `logLevel`, `lokiUrl`, `lokiEnabled`. `logLevel` gates all log output (console and Loki); entries below the configured level are neither printed nor sent
 
-`/write-config` and `/reload-config` report this via a machine-readable `restartRequired` response field.
+`/write-config` and `/reload-config` report this via a machine-readable `restartRequired` response field, and log at info level which specific settings require the restart when it is `true`.
 
 Note: Configuration is stored in YAML format (`src/config.yml`) instead of JSON.
 
@@ -143,8 +146,10 @@ The `Pinger.updateConfig()` method allows runtime configuration updates via the 
 - **Async route error handling:** Express 4 does not forward rejected async-handler promises to its error path, so the async route handlers (`/ping`, `/ping/:target`, `/metrics`) wrap their awaited work in try/catch and call `next(error)`. An application-level error middleware registered after all routes in `createRoutes()` logs each failure (warn when the forwarded error carries a 4xx status, error otherwise) and answers with the error's own status when it is an integer in 400-599 (e.g., body-parser's 400 for a malformed JSON body or 413 for a payload over the default limit), or a 500 otherwise (deferring to Express's finalhandler once headers are sent), so a route failure can never become an unhandled rejection that crashes the process
 - **Net-ping library:** Uses `createSession()` with IPv4, 16-byte packets, 1 retry, 2s timeout, 128 TTL. The module is consumed via `import netPing = require("net-ping")` and typed by the ambient declaration in `src/types/net-ping.d.ts`, which mirrors the 1.2.4 exports — including the ICMP error classes `getErrorType` classifies via `instanceof` — so the whole module surface is compile-checked instead of `any`
 - **Promise-based pinging:** `pingHost()` wrapped in Promise for async/await compatibility
+- **Logging:** Two sinks gated by the same `logLevel` — console (human-readable, errors to stderr) and, when configured, Loki (JSON, labeled `app="ip-pinger"`). The Loki transport is self-reporting: its state is logged once at startup (active with URL, or disabled with the reason), and winston-loki's `onConnectionError` hook emits a warn for send failures — the first immediately, then at most one per five minutes while the failure continues, carrying the suppressed count — because the library's batcher otherwise swallows failures and retries silently (its circuit breaker drops to one attempt per minute). `flush()` warns when its bounded wait times out, since the queued entries may never have been delivered. Full configuration dumps are console-only by design (the static `write_local_log` writer) so large, repetitive payloads never reach Loki — only the one-line summaries do
+- **Device state transitions:** Up/down transitions are logged edge-triggered (error `went down`, info `is back up`) from a per-device-key alive-state map that baselines silently on first observation and is removed with the device's metrics on configuration reload — so a re-added device baselines fresh instead of logging a stale transition against its removed state. The per-cycle per-ping failure error is unchanged, so a steady outage keeps its per-cycle evidence; the transition lines add exactly one line at each state change
 - **Prometheus gauges:** Separate gauges for up status and round-trip time
-- **Graceful shutdown:** SIGINT/SIGTERM handlers call `pinger.close()`, which closes the HTTP API server (including idle keep-alive connections) and the net-ping session before exiting. `close()` also wakes the run loop out of its wait between cycles (and skips the settle wait entirely), so shutdown does not sleep out the ping interval. Pings still in flight when the session closes are treated as cancellations: they settle their promises but update no device state, error counters, timestamps, or latency metrics
+- **Graceful shutdown:** SIGINT/SIGTERM handlers call `pinger.close()`, which closes the HTTP API server (including idle keep-alive connections) and the net-ping session before exiting. `close()` also wakes the run loop out of its wait between cycles (and skips the settle wait entirely), so shutdown does not sleep out the ping interval. Pings still in flight when the session closes are treated as cancellations: they settle their promises but update no device state, error counters, timestamps, or latency metrics. A second signal arriving while a shutdown is already in progress is logged at warn and ignored, so a duplicate `close()`/`exit()` pair can never interleave
 - **Zod validation:** Schema-based config validation with readable error messages
 - **Version management:** `src/version.ts` is the version source of truth (`APP_VERSION`, reported by `/about` and the boot log); the `/git-commit` Claude Code command (`.claude/commands/git-commit.md`) bumps it in lockstep with `package.json`, derives the release codename, syncs README.md/CLAUDE.md, and commits
 

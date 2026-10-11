@@ -44,7 +44,7 @@ const ConfigSchema = z
     .object({
         logLevel: z.enum(["debug", "info", "warn", "error"] as const),
         intervalSecs: z.number().int().positive(),
-        devices: z.array(DeviceSchema),
+        devices: z.array(DeviceSchema).min(1, "devices must contain at least one device definition"),
         lokiUrl: z.string().url().optional(),
         lokiEnabled: z.boolean().optional(),
     })
