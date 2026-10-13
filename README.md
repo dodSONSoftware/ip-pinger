@@ -41,7 +41,12 @@ Results are exposed via Prometheus-compatible metrics at the `/metrics` endpoint
 
 ### Running Locally
 
+All build and run commands execute from the repository's `code/` directory.
+
 ```bash
+# Move to the code directory
+cd code
+
 # Install dependencies
 npm install
 
@@ -61,6 +66,8 @@ npm run dev
 ### Using Docker
 
 ```bash
+# From the repository's code/ directory
+cd code
 docker build -t ip-pinger .
 
 docker run --rm \
@@ -104,7 +111,7 @@ a write failure instead of updating the file.
 
 ## Configuration
 
-Create or modify `src/config.yml`:
+Create or modify `code/src/config.yml`:
 
 ```yaml
 logLevel: debug
@@ -258,6 +265,8 @@ The state of the service itself, so Prometheus can alert on the pinger the same 
 The endpoint also serves the standard prom-client `node_*` and `process_*` runtime metrics (uptime, heap, event-loop lag, GC, …).
 
 ## Development
+
+All of the following run from the repository's `code/` directory.
 
 ```bash
 # Run linter

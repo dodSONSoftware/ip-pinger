@@ -1,212 +1,40 @@
-# CLAUDE.md
+# IP Pinger Services — Claude Code Guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Work only within this repository. Keep changes focused, prefer existing patterns, and do not modify generated `code/dist/` files directly. Read the relevant reference documents before changing behavior.
 
-## Scope
+## Project
 
-Claude Code will remain within this directory (`ip-pinger`) and its subdirectories.
+Node.js 22 / TypeScript 5 Express service that monitors configured IPv4 devices by ICMP, exports Prometheus metrics and optionally logs to Loki. All code and tooling live in `code/`. Primary files: `code/src/index.ts` (bootstrap), `code/src/Pinger.ts` (probes/metrics/scheduler), `code/src/common.ts` (configuration), `code/src/routes/generalRoutes.ts` (API), `code/src/Logger.ts` (logging), and `code/src/version.ts` (release version).
 
-## Directory Organization
+## Commands
 
-```
-/home/worker/Documents/code/sensor-services/sensors-services-and-webapps/services-code/ip-pinger/
-├── src/                  # Source code
-│   ├── index.ts          # Entry point: initialize() → infinite loop calling run()
-│   ├── Pinger.ts         # Core pinger class using net-ping library
-│   ├── Logger.ts         # Logging utility with configurable levels
-│   ├── common.ts         # Configuration loading with Zod validation
-│   ├── config.yml        # Runtime configuration (YAML format); copied to dist/ by the build
-│   ├── interfaces.ts     # TypeScript interfaces
-│   ├── systemFunctions.ts # Utility functions
-│   ├── swagger.ts        # Swagger UI setup
-│   └── version.ts        # APP_VERSION / APP_NAME — version source of truth
-├── tests/__tests__/      # Jest test files
-├── dist/                 # Compiled output (generated)
-├── CHANGELOG.md          # Per-version release history (newest first)
-└── package.json          # Dependencies and scripts
-```
-
-## Active Project
-
-### IP Pinger Services — Network Device Monitoring
-
-An Express-based service that periodically pings configured devices and exposes Prometheus metrics for monitoring.
-
-**Version:** 1.13.0 (release codename: Graphite Fox)
-
-**Commands:**
 ```bash
-npm run build   # Compile TypeScript and copy config.yml to dist/
-npm start       # Run compiled app: node ./dist/index.js
-npm run dev     # Development mode with hot reload: nodemon + ts-node
-npm test        # Run Jest tests
-npm run lint    # Run ESLint
+cd code
+npm ci
+npm run build
+npm run lint
+npm test -- --runInBand
+npm run test:coverage -- --runInBand
+CONFIG_PATH="$PWD/dist/config.yml" npm start
 ```
 
-**Architecture:**
-- Single Express server on the fixed port `API_PORT` (32001, defined in `src/common.ts`); the Docker port mapping and health checks are bound to it, so it is not a configuration option
-- Scheduled ping loop using net-ping library
-- Prometheus gauge/histogram metrics for ping status and timing
-- YAML configuration with Zod validation
-- Hot-reload configuration support
+Run commands from `code/` unless stated otherwise. Set `CONFIG_PATH` explicitly for local runs. Port 32001 is fixed. Runtime ICMP probes require raw-socket privileges. Do not run mutating configuration requests against a production instance.
 
-**Key Files:**
-- `src/index.ts` — DI bootstrap, config load, middleware setup, route registration
-- `src/Pinger.ts` — Core pinger class with net-ping session management
-- `src/common.ts` — Configuration loading with Zod schema validation
-- `src/config.yml` — Runtime configuration (YAML format)
-- `src/version.ts` — `APP_VERSION` / `APP_NAME` (release codename); version source of truth reported by `/about`, must stay in sync with `package.json`
+## Documentation — authoritative references
 
-## Architecture
+- [Architecture](docs/ARCHITECTURE.md) — boot sequence, modules, API, metrics, failure and shutdown flow
+- [Configuration](docs/CONFIGURATION.md) — YAML schema, environment, container mount, hot reload
+- [Engineering decisions](docs/DECISIONS.md) — decisions and tradeoffs
+- [System invariants](docs/INVARIANTS.md) — guarantees that must not regress
+- [Testing](docs/TESTING.md) — test suites, regression matrix and commands
+- [Known issues](docs/KNOWN_ISSUES.md) — constraints and operational risks
+- [Changelog](CHANGELOG.md) — release history (newest first)
+- [README](README.md) — user-facing setup and API reference
 
-### Boot Sequence
-1. `initialize()` reads `CONFIG_PATH` environment variable
-2. Loads `config.yml` into global `configuration` map
-3. Creates `Logger` instance with configuration
-4. Creates `Pinger` instance with configuration and logger
-5. `pinger_dude.start()` starts the Express server and is awaited — if the port cannot be bound (e.g. `EADDRINUSE`), initialization rejects, the failure reaches the top-level boundary, and the process terminates before the ping loop starts
-6. Enters infinite loop calling `pinger_dude.run()`
+## Change discipline
 
-### Pinger Loop (`Pinger.ts`)
-```
-while (!closed):
-    wait 2 seconds (woken early by a config change, close(), or session failure)
-    for each device in config.devices:
-        ping_idevice(device) → Promise<[ip, name, alive, roundtrip]>
-    process results:
-        set prometheus_Pinger_Up_Gauge[ip, name] = alive ? 1 : 0
-        set prometheus_Pinger_Roundtrip_Gauge[ip, name] = roundtrip_ms
-        log a transition line if the device's alive state changed
-        (error "went down", info "is back up"; first observation baselines silently)
-    apply any config update pending since the cycle started
-    wait for remainder of interval_secs cycle (woken early by a config change or close())
-```
-
-### Prometheus Metrics
-
-**Core Device Metrics:**
-- `pinged` (Gauge) — 1 if device responds, 0 otherwise. Labels: `ipAddress`, `deviceName`, `deviceType`
-- `pinged_roundtrip_ms` (Gauge) — Latest round-trip time in milliseconds. Labels: `ipAddress`, `deviceName`, `deviceType`
-
-**Latency Distribution:**
-- `pinged_roundtrip_seconds` (Histogram) — Round-trip time distribution. Labels: `ipAddress`, `deviceName`, `deviceType`
-  - Buckets: 1ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1000ms (+Inf)
-
-**System-Level Metrics:**
-- `pinger_cycle_duration_seconds` (Histogram) — Duration of complete ping cycles
-  - Buckets: 1s, 5s, 10s, 30s, 60s, 120s, 300s
-- `pinger_devices_up` (Gauge) — Number of devices currently reachable
-- `pinger_devices_down` (Gauge) — Number of devices currently unreachable
-
-**Timestamp Metrics:**
-- `pinged_last_success_timestamp` (Gauge) — Unix timestamp of last successful ping per device
-- `pinged_last_failure_timestamp` (Gauge) — Unix timestamp of last failed ping per device
-
-**Error Tracking:**
-- `pinged_errors_total` (Counter) — Total error count by type. Labels: `ipAddress`, `deviceName`, `deviceType`, `errorType`
-  - Error types: `timeout`, `host_unreachable`, `ttl_exceeded`, `other` (net-ping reports every destination-unreachable condition as a single `DestinationUnreachableError` — the ICMP type/code is not surfaced — so host- and network-unreachable are indistinguishable and both report as `host_unreachable`)
-
-**Application-Level Metrics** (the state of the service itself, so Prometheus can alert on the pinger the same way it alerts on its devices):
-- `pinger_operational` (Gauge) — 1 while the pinger can run cycles, 0 after a fatal net-ping session failure (mirrors `/health`'s 503)
-- `pinger_last_cycle_timestamp` (Gauge) — Unix timestamp of the last completed ping cycle; a stale value is the signal that the run loop has stopped running cycles
-- `pinger_config_pending_update` (Gauge) — 1 while a configuration update waits for the ping cycle boundary, 0 otherwise
-- `pinger_config_reload_total` (Counter) — Reload attempts by `result` label: `success` / `rejected` (validation, file-write, and load failures all report as `rejected`)
-- `pinger_config_loaded_timestamp` (Gauge) — Unix timestamp of when the live configuration was last applied (baselined to the boot date)
-- `pinger_config_devices` (Gauge) — Number of devices in the live configuration
-- `pinger_cycle_delay_seconds` (Histogram) — Delay of a cycle start beyond its scheduled deadline, by `reason` label (`interval` / `config_changed` / `shutdown`); waits woken early observe 0
-- `pinger_adhoc_ping_total` (Counter) — On-demand pings via `/ping` and `/ping/:target` by `result` label: `ok` / `down` / `invalid_target` / `error`
-- `pinger_loki_send_failures_total` (Counter) — Failed sends to the Loki transport (owned by `Logger.ts`; every failed send counts, unlike the rate-limited warn)
-- `pinger_loki_flush_timeouts_total` (Counter) — Bounded `flush()` calls that timed out before Loki acknowledged (owned by `Logger.ts`)
-
-**Process Metrics:** `collectDefaultMetrics()` in `src/index.ts` registers the standard prom-client `node_*`/`process_*` set (uptime, heap, event-loop lag, GC, …) on the same `/metrics` endpoint.
-
-**Note on Metric History Management:** All Prometheus metrics are process-lived objects created once at construction. When a config reload removes devices, only that device's label series are deleted via `metric.remove(labels)` (including every `errorType` combination of the error counter); `register.clear()` is never called, so retained devices' and the system-level metrics' history is preserved. Config updates requested while a ping cycle is in flight are held as pending and applied at the cycle boundary, so a stale in-flight ping cannot republish a removed device's series.
-
-### Configuration (`config.yml`)
-```yaml
-logLevel: debug
-intervalSecs: 60
-devices:
-  - source: "device-name"
-    ipAddress: "192.168.1.100"
-    deviceType: sensor|server|kiosk
-```
-
-Each device identity (`ipAddress` + `source` + `deviceType`) must be unique: configurations containing an exact duplicate device definition are rejected at validation time. Sharing an IP address across different sources or device types is valid — those produce distinct Prometheus series. The `devices` list must contain at least one device: an empty list is rejected at validation time (startup and `/write-config`/`/reload-config`), so the running service can never be reduced to zero monitored devices.
-
-### Hot-Reload Configuration
-
-Configuration can be updated at runtime:
-
-- **GET `/read-config`** — Returns the configuration file (read-only; does not apply it to the running service)
-- **POST `/write-config`** — Updates configuration from request body and reloads it
-- **GET `/reload-config`** — Reloads configuration from disk without changing payload
-
-Settings split into two groups:
-
-- **Hot-reloadable** (applied immediately): `intervalSecs`, `devices`
-- **Restart-required** (active only after a process restart): `logLevel`, `lokiUrl`, `lokiEnabled`. `logLevel` gates all log output (console and Loki); entries below the configured level are neither printed nor sent
-
-`/write-config` and `/reload-config` report this via a machine-readable `restartRequired` response field, and log at info level which specific settings require the restart when it is `true`.
-
-Note: Configuration is stored in YAML format (`src/config.yml`) instead of JSON.
-
-The `Pinger.updateConfig()` method allows runtime configuration updates via the route handlers. If a ping cycle is in flight when an update is accepted, it is held pending, applied at the cycle boundary — immediately after that cycle's results are processed and before the interval wait — and the wait between cycles is woken so the next cycle runs under the new configuration (including any new `intervalSecs`) without sleeping out the old interval.
-
-## Key Patterns
-
-- **Route state:** instance-local — `createRoutes()` keeps its configuration, pinger, logger, startup baseline, and about payload (static metadata plus this instance's boot date) in closure scope, so multiple Pinger instances / route applications never share mutable state. The `/about` system status is the one non-static field: it is computed from `isOperational()` at request time so `/about` never reports "healthy" while `/health` answers 503
-- **Error recovery:** Unhandled exceptions in the `main()` run loop are logged via `logger.write_error()`, and the loop continues — with two terminal exits: the loop breaks once `Pinger.isClosed()` is true (after `close()` resolved `run()`; re-entering `run()` on a closed pinger would spin the event loop on microtasks and starve the in-flight `close()`, so the process never reached `shutdown`'s `process.exit(0)`), and an unexpected net-ping session failure is fatal. The session's `"error"` handler records the failure (first error wins), closes the session, and the in-flight pings flushed by that close are treated as cancellations, not device-down observations. A session `"close"` event that was not initiated by the application (no `close()` in flight, no preceding `"error"`) is an OS-level socket death: the `"close"` handler records a synthetic fatal (first failure wins) so the same recovery path runs instead of the run loop hanging on a socket that can never send again while `/health` still reports healthy. `Pinger.isOperational()` then returns false, `/health` responds 503, `run()` rejects with the session error, and `main()` closes the API server and exits non-zero so the container orchestrator can restart the process with a fresh session. A terminal error boundary for `uncaughtException`/`unhandledRejection` catches anything that escapes every in-app try/catch: it logs via the instance logger (console + Loki) or the console-only static writer during the pre-bootstrap window before the Logger exists, flushes the Loki transport with a bounded 3s timeout (an unreachable Loki must not stall the exit), and exits non-zero for an orchestrator restart; a re-entrancy guard ignores further terminal errors during the flush window
-- **Async route error handling:** Express 4 does not forward rejected async-handler promises to its error path, so the async route handlers (`/ping`, `/ping/:target`, `/metrics`) wrap their awaited work in try/catch and call `next(error)`. An application-level error middleware registered after all routes in `createRoutes()` logs each failure (warn when the forwarded error carries a 4xx status, error otherwise) and answers with the error's own status when it is an integer in 400-599 (e.g., body-parser's 400 for a malformed JSON body or 413 for a payload over the default limit), or a 500 otherwise (deferring to Express's finalhandler once headers are sent), so a route failure can never become an unhandled rejection that crashes the process
-- **Net-ping library:** Uses `createSession()` with IPv4, 16-byte packets, 1 retry, 2s timeout, 128 TTL. The module is consumed via `import netPing = require("net-ping")` and typed by the ambient declaration in `src/types/net-ping.d.ts`, which mirrors the 1.2.4 exports — including the ICMP error classes `getErrorType` classifies via `instanceof` — so the whole module surface is compile-checked instead of `any`
-- **Promise-based pinging:** `pingHost()` wrapped in Promise for async/await compatibility
-- **Logging:** Two sinks gated by the same `logLevel` — console (human-readable, errors to stderr) and, when configured, Loki (JSON, labeled `app="ip-pinger"`). The Loki transport is self-reporting: its state is logged once at startup (active with URL, or disabled with the reason), and winston-loki's `onConnectionError` hook emits a warn for send failures — the first immediately, then at most one per five minutes while the failure continues, carrying the suppressed count — because the library's batcher otherwise swallows failures and retries silently (its circuit breaker drops to one attempt per minute). `flush()` warns when its bounded wait times out, since the queued entries may never have been delivered. Full configuration dumps are console-only by design (the static `write_local_log` writer) so large, repetitive payloads never reach Loki — only the one-line summaries do
-- **Device state transitions:** Up/down transitions are logged edge-triggered (error `went down`, info `is back up`) from a per-device-key alive-state map that baselines silently on first observation and is removed with the device's metrics on configuration reload — so a re-added device baselines fresh instead of logging a stale transition against its removed state. The per-cycle per-ping failure error is unchanged, so a steady outage keeps its per-cycle evidence; the transition lines add exactly one line at each state change
-- **Prometheus gauges:** Separate gauges for up status and round-trip time
-- **Graceful shutdown:** SIGINT/SIGTERM handlers call `pinger.close()`, which closes the HTTP API server (including idle keep-alive connections) and the net-ping session before exiting. `close()` also wakes the run loop out of its wait between cycles (and skips the settle wait entirely), so shutdown does not sleep out the ping interval. Pings still in flight when the session closes are treated as cancellations: they settle their promises but update no device state, error counters, timestamps, or latency metrics. A second signal arriving while a shutdown is already in progress is logged at warn and ignored, so a duplicate `close()`/`exit()` pair can never interleave
-- **Zod validation:** Schema-based config validation with readable error messages
-- **Version management:** `src/version.ts` is the version source of truth (`APP_VERSION`, reported by `/about` and the boot log); the `/git-commit` Claude Code command (`.claude/commands/git-commit.md`) bumps it in lockstep with `package.json`, derives the release codename, syncs README.md/CLAUDE.md, adds the new version's CHANGELOG.md entry, and commits
-
-## Development
-
-- **Node >= 22.22.0 required** (Volta pinned)
-- **TypeScript 5.x** with strict mode enabled
-- **Dependencies:** express, cors, body-parser, net-ping, prom-client, zod, swagger-jsdoc, swagger-ui-express, js-yaml
-- **Dev dependencies:** @types/* packages, nodemon, ts-node-dev, jest, ts-jest
-
-## API Endpoints
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/about` | Service information and available commands |
-| GET | `/ping` | Pings all configured devices |
-| GET | `/ping/:target` | Pings specified IPv4 address (400 if the target is not a valid IPv4 address) |
-| GET | `/read-config` | Reads current configuration |
-| POST | `/write-config` | Updates and reloads configuration |
-| GET | `/reload-config` | Reloads configuration from disk |
-| GET | `/swagger` | Swagger UI for API documentation |
-| GET | `/metrics` | Prometheus metrics endpoint |
-
-## Ports
-
-- **HTTP API (includes metrics)**: Fixed port 32001 (`API_PORT` constant in `src/common.ts`; not configurable at runtime)
-
-## Testing
-
-Tests are written using Jest and located in `tests/__tests__/`. Mock setup for `net-ping` is provided in `jest.setup.js`.
-
-**Commands:**
-```bash
-npm test          # Run all tests once
-npm run test:watch  # Watch mode for development
-npm run test:coverage  # Run with coverage report
-```
-
-## Known Constraints
-
-- No authentication or authorization
-- No HTTPS support (intended for internal network use)
-- Single-threaded event loop (suitable for periodic pinging)
-- No automatic device discovery (must configure manually)
-- Configuration hot-reload requires valid YAML (validation occurs before applying)
-- **Docker config mount requires a directory owned by uid 1000**: the container runs as `node` (uid 1000), and `POST /write-config` persists configuration atomically (temp file + rename). The host config path must be a **directory** mount owned by (or writable by) uid 1000 — e.g. `mkdir -p /mnt/ip-pinger-data/config && chown 1000:1000 /mnt/ip-pinger-data/config`. A single-file bind mount always fails with `EBUSY` (a rename cannot replace an active bind-mount point), and a `root`-owned directory fails with `EACCES`
+1. Identify affected modules, consumers, tests, and invariants; avoid altering public API, metric names/labels, or configuration behavior unintentionally.
+2. Preserve safe cycle-boundary reloads, surviving Prometheus series, failure/cancellation distinctions, and startup-only logger settings.
+3. Add or update focused tests for behavioral changes; run build, lint, and tests. Report any checks that were not run.
+4. Update the relevant `/docs` references alongside implementation changes. Keep this file short and link to details rather than copying them here.
+5. For releases, synchronize `code/src/version.ts` with `code/package.json`, update `CHANGELOG.md` newest first, and review user-facing README accuracy.
