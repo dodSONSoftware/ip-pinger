@@ -3,6 +3,11 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.14.0] — Silicon Fox (2026-10-13)
+
+- Move all application code and tooling into the `code/` directory to match the sibling services' repository layout: source, tests, and the TypeScript/Jest/ESLint build configuration live under `code/`, with the Dockerfile, docker-compose, and refresh script alongside; build, test, and Docker commands now run from `code/` and the repository root holds only documentation and agent files
+- Add the reference documentation set under `docs/` (architecture, configuration, engineering decisions, system invariants, known issues, testing), covering the boot sequence, configuration schema and reload semantics, the metrics surface, and the regression matrix
+
 ## [1.13.0] — Graphite Fox (2026-10-11)
 
 - Add application-level Prometheus metrics so Prometheus can alert on the pinger the same way it alerts on its devices: `pinger_operational` (1 while the pinger can run cycles, 0 after a fatal net-ping session failure — mirrors `/health`'s 503), `pinger_last_cycle_timestamp` (a stale timestamp is the signal that the run loop has stopped running cycles), `pinger_cycle_delay_seconds` (how far a cycle start lands beyond its scheduled deadline, by the reason the inter-cycle wait ended), `pinger_config_pending_update` (1 while a configuration update waits for the cycle boundary), `pinger_config_reload_total` (reload attempts by `result` — `success`/`rejected`, where `rejected` covers validation, file-write, and load failures), `pinger_config_loaded_timestamp` and `pinger_config_devices` (when the live configuration was last applied and how many devices it holds), and `pinger_adhoc_ping_total` (on-demand pings via the `/ping` endpoints by `result` — `ok`/`down`/`invalid_target`/`error`)
