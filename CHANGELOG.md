@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.15.0] — Ceramic Fox (2026-10-13)
+
+- No user-visible changes; version bump only
+
 ## [1.14.0] — Silicon Fox (2026-10-13)
 
 - Move all application code and tooling into the `code/` directory to match the sibling services' repository layout: source, tests, and the TypeScript/Jest/ESLint build configuration live under `code/`, with the Dockerfile, docker-compose, and refresh script alongside; build, test, and Docker commands now run from `code/` and the repository root holds only documentation and agent files
