@@ -3,6 +3,11 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.15.1] — Ceramic Fox (2026-10-13)
+
+- Make `docker-refresh.sh` recover from a stale `ip-pinger` container left behind by deployments made while the compose file still lived at the repository root: the script now removes such a name-conflicting container just before starting the new one (after the image build, so the old service keeps serving until the new image is ready), instead of failing with a container-name conflict
+- Give the compose project an explicit name (`ip-pinger`), since the default directory-based name collided with the sibling sensor-services project and produced orphan-container warnings
+
 ## [1.15.0] — Ceramic Fox (2026-10-13)
 
 - No user-visible changes; version bump only

@@ -63,6 +63,12 @@ docker compose build --no-cache
 
 echo
 echo "Starting services (waits for the /health check to pass)..."
+# Remove a stale container holding the fixed name that the current
+# compose project does not manage (e.g. deployed while the compose file
+# still lived at the repository root, under a different project name).
+# Done after the build so the old service keeps serving until the new
+# image is ready. Without this, "up" fails with a name conflict.
+docker rm -f ip-pinger 2>/dev/null || true
 # --wait blocks until the service reports healthy per the compose
 # healthcheck, and exits non-zero if it never does (default timeout 45s),
 # so set -e stops the script instead of continuing against a broken service.

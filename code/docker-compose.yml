@@ -1,3 +1,8 @@
+# Explicit project name: the default (directory basename "code") collides
+# with the sibling sensor-services project, producing orphan-container
+# warnings and making "down" targets ambiguous.
+name: ip-pinger
+
 services:
   ip-pinger:
     build:
