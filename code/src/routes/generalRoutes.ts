@@ -401,7 +401,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                   type: number
      *                   example: 45
      *       400:
-     *         description: The target is not a valid IPv4 address
+     *         description: The target is not a valid IPv4 address (the reserved addresses 0.0.0.0 and 255.255.255.255 are rejected)
      */
     app.route("/ping/:target").get(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
         try {

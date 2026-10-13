@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Ceramic Fox — version 1.15.1.
+**Release:** Ceramic Fox — version 1.15.2.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -204,7 +204,7 @@ summaries also reach Loki.
 |--------|-------|-------------|
 | GET | `/about` | Service information, version, and release codename |
 | GET | `/ping` | Trigger immediate ping of all devices |
-| GET | `/ping/:target` | Ping a specific IPv4 address (400 if the target is not a valid IPv4 address) |
+| GET | `/ping/:target` | Ping a specific IPv4 address (400 if the target is not a valid IPv4 address; the reserved `0.0.0.0` and `255.255.255.255` are rejected) |
 | GET | `/read-config` | Read current configuration |
 | POST | `/write-config` | Update and reload configuration |
 | GET | `/reload-config` | Reload configuration from disk |

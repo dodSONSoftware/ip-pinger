@@ -8,7 +8,7 @@ This document records design decisions visible in the implementation, their rati
 
 ## D-002 — Strict YAML validation and nonempty device list
 
-**Decision:** `CONFIG_PATH` must be supplied; Zod requires `logLevel`, positive integer `intervalSecs`, and one or more valid IPv4 devices. Exact identity duplicates are rejected. **Rationale:** Fail fast instead of monitoring nothing or generating duplicate Prometheus series. **Consequence:** Invalid configuration blocks startup or update.
+**Decision:** `CONFIG_PATH` must be supplied; Zod requires `logLevel`, positive integer `intervalSecs`, and one or more valid IPv4 devices. Exact identity duplicates are rejected. The reserved addresses `0.0.0.0` and `255.255.255.255` are rejected as device addresses and `/ping/:target` targets because they are not usable as a destination. **Rationale:** Fail fast instead of monitoring nothing, generating duplicate Prometheus series, or pinging an address that can never respond. **Consequence:** Invalid configuration blocks startup or update.
 
 ## D-003 — Separate live and startup-owned configuration
 

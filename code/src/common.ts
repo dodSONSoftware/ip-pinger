@@ -31,8 +31,14 @@ export const API_PORT = 32001;
 /* ---------- Schema ---------- */
 
 // Shared IPv4 boundary validation: configured device addresses and the
-// /ping/:target route parameter accept exactly the same input.
-export const IPV4_SCHEMA = z.ipv4("Invalid IP address");
+// /ping/:target route parameter accept exactly the same input. The two
+// reserved addresses that are not usable as a destination (RFC 1122) are
+// rejected here so they are refused at every entry point instead of being
+// pinged and reported as "down".
+export const IPV4_SCHEMA = z.ipv4("Invalid IP address").refine(
+    (ip) => ip !== "0.0.0.0" && ip !== "255.255.255.255",
+    "Invalid IP address",
+);
 
 const DeviceSchema = z.object({
     source: z.string(),

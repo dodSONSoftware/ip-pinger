@@ -3,6 +3,11 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.15.2] — Ceramic Fox (2026-10-13)
+
+- Reject the reserved IPv4 addresses `0.0.0.0` (unspecified) and `255.255.255.255` (limited broadcast) as ping targets: `GET /ping/:target` now answers 400 for them instead of pinging an address that can never respond and reporting it as down
+- Enforce the same rule at the configuration boundary: these addresses are refused when loading the config and at `/write-config`/`/reload-config`, so a config containing either is now rejected (a startup config carrying one no longer loads)
+
 ## [1.15.1] — Ceramic Fox (2026-10-13)
 
 - Make `docker-refresh.sh` recover from a stale `ip-pinger` container left behind by deployments made while the compose file still lived at the repository root: the script now removes such a name-conflicting container just before starting the new one (after the image build, so the old service keeps serving until the new image is ready), instead of failing with a container-name conflict

@@ -27,7 +27,7 @@ lokiEnabled: false
 | `intervalSecs` | Yes | Positive integer seconds; no implicit default | Live |
 | `devices` | Yes | At least one device; identity triple unique | Live |
 | `devices[].source` | Yes | String | Live |
-| `devices[].ipAddress` | Yes | Valid IPv4 address | Live |
+| `devices[].ipAddress` | Yes | Valid IPv4 address (the reserved `0.0.0.0` and `255.255.255.255` are rejected) | Live |
 | `devices[].deviceType` | Yes | `sensor`, `server`, or `kiosk` | Live |
 | `lokiEnabled` | No | Boolean; absent treated as false by logger | Restart |
 | `lokiUrl` | Conditional | URL; required if `lokiEnabled: true` | Restart |

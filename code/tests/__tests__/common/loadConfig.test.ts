@@ -396,16 +396,16 @@ devices:
 `;
 
     it.each([
-        "0.0.0.0",
         "10.10.10.70",
         "192.168.1.255",
-        "255.255.255.255",
     ])("should accept valid IPv4 address %s", (ip) => {
         const result = validateConfig(yamlForIp(ip));
         expect(result.ok).toBe(true);
     });
 
     it.each([
+        "0.0.0.0",
+        "255.255.255.255",
         "256.0.0.1",
         "999.999.999.999",
         "192.168.1",

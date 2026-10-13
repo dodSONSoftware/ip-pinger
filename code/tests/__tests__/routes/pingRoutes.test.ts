@@ -120,6 +120,8 @@ describe("/ping/:target (async error handling)", () => {
 describe("/ping/:target (target validation)", () => {
     it.each([
         "not-an-ip",
+        "0.0.0.0",
+        "255.255.255.255",
         "256.1.1.1",
         "10.0.0.1.1",
         "10.0.0.257",

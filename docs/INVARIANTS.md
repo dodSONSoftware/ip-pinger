@@ -3,7 +3,7 @@
 This document defines guarantees and implementation constraints that must remain true when modifying IP Pinger Services.
 
 1. **Valid startup:** `CONFIG_PATH` must be set and refer to readable, Zod-valid YAML before monitoring begins. Failed validation is not silently replaced by defaults.
-2. **Valid devices:** At least one valid IPv4 device exists; each `(ipAddress, source, deviceType)` triple is unique. `deviceType` is one of `sensor`, `server`, or `kiosk`.
+2. **Valid devices:** At least one valid IPv4 device exists; each `(ipAddress, source, deviceType)` triple is unique. `deviceType` is one of `sensor`, `server`, or `kiosk`. The reserved addresses `0.0.0.0` and `255.255.255.255` do not count as valid devices.
 3. **One active server:** Express listens on fixed port 32001. The HTTP bind must succeed before the scheduler starts.
 4. **Startup-owned settings:** Active `logLevel`, `lokiEnabled`, and `lokiUrl` do not silently change on reload. `restartRequired` compares disk changes with the original active baseline.
 5. **Atomic cycle view:** An in-flight monitoring cycle finishes using its original device snapshot before a pending configuration is applied. Pending updates cannot allow a stale result to recreate removed device metrics.
