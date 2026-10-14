@@ -4,7 +4,7 @@
  */
 
 import type express from "express";
-import { IPV4_SCHEMA, validateConfig, getConfigPath, loadConfig, getRestartRequiredSettings, requiresRestart, RESTART_REQUIRED_FIELDS } from "../common";
+import { IPV4_SCHEMA, validateParsedConfig, getConfigPath, loadConfig, getRestartRequiredSettings, requiresRestart, RESTART_REQUIRED_FIELDS } from "../common";
 import type { RestartRequiredSettings } from "../common";
 import { ensureError, write_file } from "../systemFunctions";
 import type { ILogger, IPinger, IConfig, IDevice, ConfigReloadResult, AdhocPingResult } from "../interfaces";
@@ -551,9 +551,12 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
 
     async function doWriteConfig(req: express.Request, res: express.Response): Promise<void> {
         try {
-            // get body as json and verify
-            const json_str = JSON.stringify(req.body);
-            const validData = validateConfig(json_str);
+            // Validate the request body directly against the schema: express
+            // has already parsed req.body into an object, so there is no need
+            // to serialize it to a string and parse it back. The persist step
+            // below re-serializes the validated data to YAML, so it is
+            // independent of the request body's on-the-wire shape.
+            const validData = validateParsedConfig(req.body);
 
             // check
             if (validData.ok) {

@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.9] — Quartz Fox (2026-10-14)
+
+- Drop the JSON round-trip in `POST /write-config`: the handler now validates `req.body` directly with `validateParsedConfig` instead of serializing it back to a string and re-parsing it through `validateConfig` — Express has already parsed the body, so the extra `JSON.stringify` → YAML-parse cycle added no validation value, and the persist step was already re-serializing the validated data to YAML independently
+
 ## [1.16.8] — Quartz Fox (2026-10-14)
 
 - Remove the unused `ILogger` level accessors: `global_log_level()` and `global_log_level_string()` had no callers anywhere in the application or test suite, so they are dropped from the `ILogger` interface and from all three implementations (`Logger`, `ConsoleLogger`, `NoOpLogger`), along with `Logger`'s write-only `globalLogLevelName` field and the now-redundant `LogLevel` imports in `common.ts` and the Pinger test's spy loggers
