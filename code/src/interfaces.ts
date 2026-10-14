@@ -131,7 +131,6 @@ export interface IPinger {
 export type LogLevels = "debug" | "info" | "warn" | "error";
 
 export interface IConfig {
-    [key: string]: unknown;
     logLevel: LogLevels;
     intervalSecs: number;
     devices: IDevice[];

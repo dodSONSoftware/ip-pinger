@@ -294,13 +294,13 @@ export class Logger implements ILogger {
     // ******** STATIC functions
 
     static write_local_log(log_level: LogLevel, originator: string, message: string, elapsed_time_start_date: Date | null = null): void {
+        // No explicit start means "since the process started": the callers
+        // that omit it (the boot line) predate the service's own start
+        // timestamps, and elapsed_time(now) would print 00:00:00.000 on
+        // every such line.
+        const start = elapsed_time_start_date ?? new Date(Date.now() - process.uptime() * 1000);
         // create header
-        let header = "";
-        if (elapsed_time_start_date === null) {
-            header = `[${get_timestamp()}][${elapsed_time(new Date(Date.now()))}][${convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
-        } else {
-            header = `[${get_timestamp()}][${elapsed_time(elapsed_time_start_date)}][${convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
-        }
+        const header = `[${get_timestamp()}][${elapsed_time(start)}][${convert_from_log_level_enum_to_string(log_level)}][${originator}]`;
 
         // create message
         const msg = `${header} ${message}`;

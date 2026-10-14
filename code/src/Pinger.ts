@@ -241,13 +241,18 @@ export class Pinger implements dli.IPinger {
             next();
         });
 
-        // ******** SETUP ROUTES
-
-        createRoutes(this.express, this.configuration, this.config_str, this, this.logger, startDate);
-
         // ******** SETUP SWAGGER
 
         setupSwagger(this.express as express.Express);
+
+        // ******** SETUP ROUTES
+
+        // The route set is registered after the swagger set: createRoutes
+        // ends by installing the shared error middleware, and an error
+        // handler only sees errors from layers above it — registering the
+        // swagger routes after it would route their failures to Express's
+        // default handler instead of the application's.
+        createRoutes(this.express, this.configuration, this.config_str, this, this.logger, startDate);
 
         // ******** CREATE THE PINGER
 

@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Quartz Fox — version 1.16.3.
+**Release:** Quartz Fox — version 1.16.4.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -30,7 +30,7 @@ Results are exposed via Prometheus-compatible metrics at the `/metrics` endpoint
 - **Hot-reload configuration**: Update device lists and settings without restarting
 - **Graceful shutdown**: SIGINT/SIGTERM cleanly close the HTTP API server and net-ping session before exiting
 - **Swagger UI**: Interactive API documentation at `/swagger`
-- **Multi-port support**: Combined API and metrics on single port
+- **Fixed port**: API and metrics on the single fixed port 32001 (not configurable)
 
 ## Quick Start
 
@@ -53,14 +53,14 @@ npm install
 # Build the TypeScript code
 npm run build
 
-# Start the service
-npm start
+# Start the service (CONFIG_PATH names the configuration file; it is required)
+CONFIG_PATH="$PWD/dist/config.yml" npm start
 ```
 
 For development with auto-reload:
 
 ```bash
-npm run dev
+CONFIG_PATH="$PWD/src/config.yml" npm run dev
 ```
 
 ### Using Docker

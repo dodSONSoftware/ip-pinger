@@ -3,6 +3,13 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.4] — Quartz Fox (2026-10-14)
+
+- Register the swagger routes before the route set (and its shared error middleware) in the Pinger constructor: an Express 4 error handler only sees errors from layers above it, so the previously-registered swagger routes could reach Express's default 500 handler instead of the application's error response, and the middleware is now pinned as the final layer of the app with a stack-order regression test
+- Report a real elapsed time in the static console log header when no start date is passed: `Logger.write_local_log`'s boot line printed `[00:00:00.000]` (elapsed since "now") on every line instead of the time since the process started
+- Remove the catch-all `[key: string]: unknown` index signature from `IConfig`: it silenced typos in configuration property access, and the interface now carries only the fields the Zod schema and the runtime actually use
+- Correct the README quick start to set the required `CONFIG_PATH` (`npm start`/`npm run dev` without it exit at import) and replace the self-contradictory "Multi-port support" feature bullet with the fixed-port-32001 fact
+
 ## [1.16.3] — Quartz Fox (2026-10-14)
 
 - Resolve the package name for the boot log from a path relative to the compiled entry point (`path.join(__dirname, "..", "package.json")`) instead of the hard-coded container path `/app/package.json`, which never exists outside the image: a locally built or `ts-node` development run logged `Booting Unknown App v…` instead of `Booting ip-pinger v…`, and the container behavior is unchanged because the same join resolves to `/app/package.json` there

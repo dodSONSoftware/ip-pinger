@@ -1146,3 +1146,24 @@ describe("Pinger error classification (getErrorType)", () => {
         }
     });
 });
+
+describe("Pinger route registration (error middleware ordering)", () => {
+    it("installs the error-handling middleware after every route, including the swagger routes", () => {
+        // constructed without start() — no HTTP server involved
+        const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date(), 0);
+        pingers.push(pinger);
+
+        // Express only forwards an error to error-handling layers registered
+        // after the failing route: the shared error middleware must therefore
+        // be the final layer of the app, so a failure in any route (including
+        // /swagger) reaches it instead of Express's default 500 handler.
+        type StackLayer = { handle: { length: number }; route?: { path: string }; regexp: { source: string } };
+        const stack = (pinger as unknown as { express: { _router: { stack: StackLayer[] } } }).express._router.stack;
+        const errorIdx = stack.findIndex((layer) => layer.handle.length === 4);
+        const swaggerIdx = stack.findIndex((layer) => layer.regexp.source.includes("swagger"));
+
+        expect(swaggerIdx).toBeGreaterThanOrEqual(0);
+        expect(errorIdx).toBeGreaterThan(swaggerIdx);
+        expect(errorIdx).toBe(stack.length - 1);
+    });
+});
