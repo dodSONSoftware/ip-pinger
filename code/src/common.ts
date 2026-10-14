@@ -4,7 +4,6 @@
  */
 
 import type { IConfig, ILogger, LogLevels } from "./interfaces";
-import { LogLevel } from "./interfaces";
 import { readFileSync } from "fs";
 import { z } from "zod";
 import { ensureError } from "./systemFunctions";
@@ -171,12 +170,6 @@ export function validateConfig(yaml: string): { ok: true; data: Config } | { ok:
  * A no-op logger implementation for cases where logging is not needed
  */
 export class NoOpLogger implements ILogger {
-    global_log_level(): LogLevel {
-        return LogLevel.None;
-    }
-    global_log_level_string(): string {
-        return "None";
-    }
     write_info(_originator: string, _message: string, _start_date?: Date | null | undefined): void { }
     write_warn(_originator: string, _message: string, _start_date?: Date | null | undefined): void { }
     write_error(_originator: string, _message: string, _start_date?: Date | null | undefined): void { }

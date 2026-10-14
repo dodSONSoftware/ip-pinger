@@ -14,8 +14,6 @@ export enum LogLevel {
 }
 
 export interface ILogger {
-    global_log_level(): LogLevel;
-    global_log_level_string(): string;
     write_info(originator: string, message: string, start_date?: Date): void;
     write_warn(originator: string, message: string, start_date?: Date): void;
     write_error(originator: string, message: string, start_date?: Date): void;
@@ -42,20 +40,6 @@ export class ConsoleLogger implements ILogger {
 
     constructor(minLogLevel: LogLevel = LogLevel.Info) {
         this.logLevel = minLogLevel;
-    }
-
-    global_log_level(): LogLevel {
-        return this.logLevel;
-    }
-
-    global_log_level_string(): string {
-        switch (this.logLevel) {
-            case LogLevel.Debug: return "Debug";
-            case LogLevel.Info: return "Info";
-            case LogLevel.Warn: return "Warn";
-            case LogLevel.Error: return "Error";
-            default: return "None";
-        }
     }
 
     /**

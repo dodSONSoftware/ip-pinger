@@ -9,7 +9,6 @@ import { API_PORT, NoOpLogger } from "../../../src/common";
 import { register } from "prom-client";
 import type { Counter, Gauge, Histogram } from "prom-client";
 import type { IConfig, IDevice, ILogger } from "../../../src/interfaces";
-import { LogLevel } from "../../../src/interfaces";
 
 const deviceA: IDevice = { source: "Device A", ipAddress: "10.0.0.1", deviceType: "sensor" };
 const deviceB: IDevice = { source: "Device B", ipAddress: "10.0.0.2", deviceType: "server" };
@@ -159,8 +158,6 @@ describe("Pinger.close() (in-flight ping cancellation at shutdown)", () => {
         // misleading ping-error log
         const write_error = jest.fn();
         const spyLogger: ILogger = {
-            global_log_level: (): LogLevel => LogLevel.None,
-            global_log_level_string: (): string => "None",
             write_info: jest.fn(),
             write_warn: jest.fn(),
             write_error: write_error,
@@ -350,8 +347,6 @@ describe("Pinger.run() (fatal net-ping session error)", () => {
         // session-level error, not as per-device ping errors
         const write_error = jest.fn();
         const spyLogger: ILogger = {
-            global_log_level: (): LogLevel => LogLevel.None,
-            global_log_level_string: (): string => "None",
             write_info: jest.fn(),
             write_warn: jest.fn(),
             write_error: write_error,
@@ -445,8 +440,6 @@ describe("Pinger.run() (fatal net-ping session error)", () => {
         // error, not as per-device ping errors
         const write_error = jest.fn();
         const spyLogger: ILogger = {
-            global_log_level: (): LogLevel => LogLevel.None,
-            global_log_level_string: (): string => "None",
             write_info: jest.fn(),
             write_warn: jest.fn(),
             write_error: write_error,
@@ -986,8 +979,6 @@ describe("Pinger.run() (edge-triggered transition logging)", () => {
         const write_info = jest.fn();
         const write_error = jest.fn();
         const logger: ILogger = {
-            global_log_level: (): LogLevel => LogLevel.None,
-            global_log_level_string: (): string => "None",
             write_info: write_info,
             write_warn: jest.fn(),
             write_error: write_error,

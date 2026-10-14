@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.8] — Quartz Fox (2026-10-14)
+
+- Remove the unused `ILogger` level accessors: `global_log_level()` and `global_log_level_string()` had no callers anywhere in the application or test suite, so they are dropped from the `ILogger` interface and from all three implementations (`Logger`, `ConsoleLogger`, `NoOpLogger`), along with `Logger`'s write-only `globalLogLevelName` field and the now-redundant `LogLevel` imports in `common.ts` and the Pinger test's spy loggers
+
 ## [1.16.7] — Quartz Fox (2026-10-14)
 
 - Inline the `getEndpoints()` one-liner: the `/endpoints` route handler now serves the module-level `endpointsInfo` object directly, and the module-private `getEndpoints()` wrapper (whose only body was `return endpointsInfo`) is removed, dropping an indirection layer that added no behavior

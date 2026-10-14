@@ -42,8 +42,6 @@ export class Logger implements ILogger {
                 : config.logLevel === "warn" ? LogLevel.Warn
                     : LogLevel.Error;
 
-        this.globalLogLevelName = config.logLevel;
-
         // Application-level metrics for the Loki transport (unlabeled): a
         // remote log sink that is silently dropping entries is the same
         // class of problem this service monitors for in devices, so it is
@@ -129,7 +127,6 @@ export class Logger implements ILogger {
     // ******** private properties
 
     private readonly globalLogLevelValue: LogLevel = LogLevel.None;
-    private readonly globalLogLevelName: string = "";
     private readonly winston: winston.Logger;
     private readonly lokiSendFailuresTotal: Counter;
     private readonly lokiFlushTimeoutsTotal: Counter;
@@ -142,14 +139,6 @@ export class Logger implements ILogger {
 
     // ********
     // ******** ILogger functions
-
-    global_log_level(): LogLevel {
-        return this.globalLogLevelValue;
-    }
-
-    global_log_level_string(): string {
-        return this.globalLogLevelName;
-    }
 
     write_debug(
         originator: string,
