@@ -78,76 +78,9 @@ type EndpointsInfo = {
     endpoints: EndpointDetail[];
 };
 
-export const aboutInformation: AboutInformation = {
-    about: {
-        name: "IP Pinger Services",
-        version: APP_VERSION,
-        release: APP_NAME,
-        author: "Randy Dodson (dodsonsoftware@gmail.com)",
-        description: "**IP Pinger Services** is the network monitoring service for the **SensorNET** platform. " +
-            "Built with Node.js and Express, it continuously checks the availability and responsiveness of configured devices using ICMP echo requests.\n\n" +
-            "The **IP Pinger Services** loads device definitions from YAML configuration and performs scheduled ping cycles at configurable intervals. " +
-            "For each device, it records online or offline status, round-trip latency, last successful and failed checks, and categorized errors such as " +
-            "timeouts and unreachable hosts.\n\nThe **IP Pinger Services** exposes Prometheus metrics for device availability, latency distribution, monitoring " +
-            "cycle duration, timestamps, and network errors, as well as application-level metrics (operational state, configuration state and reload outcomes, " +
-            "cycle timing, and log-transport health) and standard Node.js process metrics. These metrics support Grafana dashboards, alerting, historical " +
-            "analysis, and early detection of connectivity or performance issues.\n\nRuntime configuration updates allow devices and monitoring settings to be " +
-            "changed without restarting the service. Health endpoints, structured logging, and automatic cleanup of metrics for removed devices support " +
-            "reliable production operation.",
-        copyright: "Copyright © 2026 dodson Software ( dodson labs )",
-        license: "MIT License"
-    },
-    system: {
-        status: "healthy",
-        bootdate: ""
-    },
-    commands: {
-        "name": "General",
-        "help": {
-            "description": "IP Pinger Services",
-            "commands": [
-                {
-                    "route": "/about",
-                    "description": "Returns service information and available commands."
-                },
-                {
-                    "route": "/ping",
-                    "description": "Pings all configured devices."
-                },
-                {
-                    "route": "/ping/:target",
-                    "description": "Pings the specified IP address and returns the result."
-                },
-                {
-                    "route": "/read-config",
-                    "description": "Reads the current configuration."
-                },
-                {
-                    "route": "/write-config",
-                    "description": "Updates the configuration and reloads it."
-                },
-                {
-                    "route": "/reload-config",
-                    "description": "Reloads the configuration from disk without changing the payload."
-                },
-                {
-                    "route": "/metrics",
-                    "description": "Returns Prometheus metrics for scraped devices."
-                },
-                {
-                    "route": "/health",
-                    "description": "Health check endpoint for container orchestration."
-                },
-                {
-                    "route": "/endpoints",
-                    "description": "Returns detailed information about each API endpoint."
-                }
-            ]
-        }
-    }
-};
-
 // **** ENDPOINTS Information
+// The single source of truth for the route inventory: the /about command
+// index (below) is derived from it so the two listings can never drift apart.
 export const endpointsInfo: EndpointsInfo = {
     endpoints: [
         {
@@ -223,6 +156,40 @@ export const endpointsInfo: EndpointsInfo = {
             description: "Returns detailed information about each API endpoint."
         }
     ]
+};
+
+export const aboutInformation: AboutInformation = {
+    about: {
+        name: "IP Pinger Services",
+        version: APP_VERSION,
+        release: APP_NAME,
+        author: "Randy Dodson (dodsonsoftware@gmail.com)",
+        description: "**IP Pinger Services** is the network monitoring service for the **SensorNET** platform. " +
+            "Built with Node.js and Express, it continuously checks the availability and responsiveness of configured devices using ICMP echo requests.\n\n" +
+            "The **IP Pinger Services** loads device definitions from YAML configuration and performs scheduled ping cycles at configurable intervals. " +
+            "For each device, it records online or offline status, round-trip latency, last successful and failed checks, and categorized errors such as " +
+            "timeouts and unreachable hosts.\n\nThe **IP Pinger Services** exposes Prometheus metrics for device availability, latency distribution, monitoring " +
+            "cycle duration, timestamps, and network errors, as well as application-level metrics (operational state, configuration state and reload outcomes, " +
+            "cycle timing, and log-transport health) and standard Node.js process metrics. These metrics support Grafana dashboards, alerting, historical " +
+            "analysis, and early detection of connectivity or performance issues.\n\nRuntime configuration updates allow devices and monitoring settings to be " +
+            "changed without restarting the service. Health endpoints, structured logging, and automatic cleanup of metrics for removed devices support " +
+            "reliable production operation.",
+        copyright: "Copyright © 2026 dodson Software ( dodson labs )",
+        license: "MIT License"
+    },
+    system: {
+        status: "healthy",
+        bootdate: ""
+    },
+    commands: {
+        "name": "General",
+        "help": {
+            "description": "IP Pinger Services",
+            // Derived from endpointsInfo so the /about index and the /endpoints
+            // catalog always agree on the routes and their descriptions.
+            "commands": endpointsInfo.endpoints.map(({ route, description }) => ({ route, description }))
+        }
+    }
 };
 
 // **** PRIVATE Constants

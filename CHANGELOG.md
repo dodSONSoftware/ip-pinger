@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.6] — Quartz Fox (2026-10-14)
+
+- Derive the `/about` route index from the `/endpoints` catalog so the two listings share a single source of truth and can no longer drift: per-route descriptions now always agree (the `/about` lines for `/metrics` and `/health` adopt the fuller catalog wording), and adding or rewording a route is a one-place edit
+
 ## [1.16.5] — Quartz Fox (2026-10-14)
 
 - Remove the unused `Pinger.getLogger()` public method: it was not on the `IPinger` interface and had no callers in the application or the test suite, so it advertised a logger access point that nothing consumed
