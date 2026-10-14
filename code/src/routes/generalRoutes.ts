@@ -847,7 +847,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                         type: string
      */
     app.route("/endpoints").get((req: express.Request, res: express.Response) => {
-        res.type(Json).status(OK).json(getEndpoints());
+        res.type(Json).status(OK).json(endpointsInfo);
     });
 
     // **** Application-level error handler
@@ -1000,10 +1000,4 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             })
         );
     }
-}
-
-// ******** PRIVATE Functions
-
-function getEndpoints() {
-    return endpointsInfo;
 }

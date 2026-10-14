@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.7] — Quartz Fox (2026-10-14)
+
+- Inline the `getEndpoints()` one-liner: the `/endpoints` route handler now serves the module-level `endpointsInfo` object directly, and the module-private `getEndpoints()` wrapper (whose only body was `return endpointsInfo`) is removed, dropping an indirection layer that added no behavior
+
 ## [1.16.6] — Quartz Fox (2026-10-14)
 
 - Derive the `/about` route index from the `/endpoints` catalog so the two listings share a single source of truth and can no longer drift: per-route descriptions now always agree (the `/about` lines for `/metrics` and `/health` adopt the fuller catalog wording), and adding or rewording a route is a one-place edit
