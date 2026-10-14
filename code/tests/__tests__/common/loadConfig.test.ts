@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { loadConfig, validateConfig, getConfigPath } from "../../../src/common";
+import { loadConfig, validateConfig, getConfigPath, MAX_INTERVAL_SECS } from "../../../src/common";
 
 // The worker-unique path jest.setup.js assigned to CONFIG_PATH. This suite
 // writes the file directly, so it must use the same path the loaded
@@ -161,6 +161,64 @@ devices:
         expect(result.ok).toBe(false);
         if (!result.ok) {
             expect(result.errors.join(" ")).toContain("intervalSecs");
+        }
+    });
+
+    it("rejects an intervalSecs above the maximum, naming the field", () => {
+        // Node clamps a setTimeout delay above 2^31-1 ms to 1 ms, so an
+        // interval whose millisecond form overflows (e.g. 3000000000 s)
+        // would turn the scheduler into a hot loop; the schema must reject
+        // it at the boundary instead
+        const yaml = `
+logLevel: debug
+intervalSecs: ${MAX_INTERVAL_SECS + 1}
+devices:
+  - source: Test
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
+`;
+
+        const result = validateConfig(yaml);
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.errors.join(" ")).toContain("intervalSecs");
+        }
+    });
+
+    it("rejects an intervalSecs that would overflow the Node timer ceiling", () => {
+        const yaml = `
+logLevel: debug
+intervalSecs: 3000000000
+devices:
+  - source: Test
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
+`;
+
+        const result = validateConfig(yaml);
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.errors.join(" ")).toContain("intervalSecs");
+        }
+    });
+
+    it("accepts an intervalSecs at the maximum", () => {
+        const yaml = `
+logLevel: debug
+intervalSecs: ${MAX_INTERVAL_SECS}
+devices:
+  - source: Test
+    ipAddress: "192.168.1.1"
+    deviceType: sensor
+`;
+
+        const result = validateConfig(yaml);
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.data.intervalSecs).toBe(MAX_INTERVAL_SECS);
         }
     });
 

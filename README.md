@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Quartz Fox — version 1.16.0.
+**Release:** Quartz Fox — version 1.16.1.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -131,7 +131,7 @@ configuration option.
 | Option | Description | Default | Valid Values |
 |--------|-------------|---------|--------------|
 | `logLevel` | Logging verbosity (applies to both console and Loki output) | required | `debug`, `info`, `warn`, `error` |
-| `intervalSecs` | Ping cycle interval | required | Positive integer |
+| `intervalSecs` | Ping cycle interval | required | Positive integer seconds, at most `86400` (one day) |
 | `devices` | Array of devices to ping | required | Non-empty array of device objects (at least one device) |
 | `lokiUrl` | Loki endpoint for structured log forwarding | unset | URL; required when `lokiEnabled` is `true` |
 | `lokiEnabled` | Enable the Loki log transport | `false` | `true`, `false` |

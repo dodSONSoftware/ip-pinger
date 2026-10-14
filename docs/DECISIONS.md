@@ -8,7 +8,7 @@ This document records design decisions visible in the implementation, their rati
 
 ## D-002 — Strict YAML validation and nonempty device list
 
-**Decision:** `CONFIG_PATH` must be supplied; Zod requires `logLevel`, positive integer `intervalSecs`, and one or more valid IPv4 devices. Exact identity duplicates are rejected. The reserved addresses `0.0.0.0` and `255.255.255.255` are rejected as device addresses and `/ping/:target` targets because they are not usable as a destination. **Rationale:** Fail fast instead of monitoring nothing, generating duplicate Prometheus series, or pinging an address that can never respond. **Consequence:** Invalid configuration blocks startup or update.
+**Decision:** `CONFIG_PATH` must be supplied; Zod requires `logLevel`, positive integer `intervalSecs` (capped at `MAX_INTERVAL_SECS`, one day), and one or more valid IPv4 devices. Exact identity duplicates are rejected. The reserved addresses `0.0.0.0` and `255.255.255.255` are rejected as device addresses and `/ping/:target` targets because they are not usable as a destination. **Rationale:** Fail fast instead of monitoring nothing, generating duplicate Prometheus series, or pinging an address that can never respond. The `intervalSecs` cap exists because Node clamps a `setTimeout` delay above 2^31-1 ms to 1 ms: an interval whose millisecond form overflows would silently turn the scheduler into a ~1 ms hot loop pinging every device as fast as the network allows, so the bound is enforced at the validation boundary. **Consequence:** Invalid configuration blocks startup or update.
 
 ## D-003 — Separate live and startup-owned configuration
 

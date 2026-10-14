@@ -261,6 +261,27 @@ describe("/write-config (validation)", () => {
         expect(fs.readFileSync(CONFIG_FILE, "utf-8")).toBe(before);
     });
 
+    it("rejects an intervalSecs above the maximum before persisting it", async () => {
+        const before = fs.readFileSync(CONFIG_FILE, "utf-8");
+
+        // An interval whose millisecond form overflows the 2^31-1 ms Node
+        // timer ceiling would be clamped to a 1 ms scheduler hot loop; it
+        // must be refused at the API boundary and recorded as rejected
+        const { status, body } = await postConfig({
+            logLevel: "info",
+            intervalSecs: 3000000000,
+            lokiEnabled: false,
+            devices: [deviceA],
+        });
+
+        expect(status).toBe(400);
+        expect(body.success).toBe(false);
+        expect(recordConfigReload).toHaveBeenCalledTimes(1);
+        expect(recordConfigReload).toHaveBeenCalledWith("rejected");
+        expect(updateConfig).not.toHaveBeenCalled();
+        expect(fs.readFileSync(CONFIG_FILE, "utf-8")).toBe(before);
+    });
+
     it("rejects invalid IPv4 addresses before persisting them", async () => {
         const before = fs.readFileSync(CONFIG_FILE, "utf-8");
 

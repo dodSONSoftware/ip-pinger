@@ -22,6 +22,19 @@ export function getConfigPath(): string {
 }
 
 /**
+ * Upper bound for intervalSecs, in seconds (one day).
+ *
+ * Node clamps a setTimeout delay above 2^31-1 milliseconds to 1 millisecond
+ * (with a TimeoutOverflowWarning), so an interval whose millisecond form
+ * overflows would silently turn the scheduler into a ~1 ms hot loop that
+ * pings every device as fast as the network allows. The bound is enforced at
+ * the validation boundary (the config file and /write-config) instead of in
+ * the scheduler, so an unrepresentable interval is rejected with a named
+ * field instead of misbehaving.
+ */
+export const MAX_INTERVAL_SECS = 24 * 60 * 60;
+
+/**
  * Fixed HTTP API port. The Docker deployment (port publishing and health
  * checks) is bound to this port, so the listener port is an application
  * constant rather than a runtime configuration setting.
@@ -49,7 +62,10 @@ const DeviceSchema = z.object({
 const ConfigSchema = z
     .object({
         logLevel: z.enum(["debug", "info", "warn", "error"] as const),
-        intervalSecs: z.number().int().positive(),
+        intervalSecs: z.number().int().positive().max(
+            MAX_INTERVAL_SECS,
+            `Interval too large (maximum is ${MAX_INTERVAL_SECS} seconds, one day)`
+        ),
         devices: z.array(DeviceSchema).min(1, "devices must contain at least one device definition"),
         lokiUrl: z.string().url().optional(),
         lokiEnabled: z.boolean().optional(),

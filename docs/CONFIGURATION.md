@@ -24,7 +24,7 @@ lokiEnabled: false
 | Field | Required | Constraints | Application |
 | --- | --- | --- | --- |
 | `logLevel` | Yes | `debug`, `info`, `warn`, `error`; no implicit default | Restart |
-| `intervalSecs` | Yes | Positive integer seconds; no implicit default | Live |
+| `intervalSecs` | Yes | Positive integer seconds, at most `86400` (one day); no implicit default | Live |
 | `devices` | Yes | At least one device; identity triple unique | Live |
 | `devices[].source` | Yes | String | Live |
 | `devices[].ipAddress` | Yes | Valid IPv4 address (the reserved `0.0.0.0` and `255.255.255.255` are rejected) | Live |

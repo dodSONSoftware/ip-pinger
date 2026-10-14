@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.1] — Quartz Fox (2026-10-13)
+
+- Reject `intervalSecs` values above `86400` (one day) in the configuration schema: Node clamps a timer delay above 2^31-1 milliseconds to 1 millisecond, so an interval whose millisecond form overflows (e.g. `3000000000`) would silently turn the ping scheduler into a ~1 ms hot loop that pings every configured device as fast as the network allows; such values are now refused at startup and at `/write-config`/`/reload-config` with a field-named error, and a rejected `/write-config` payload is recorded as `rejected` in `pinger_config_reload_total`
+
 ## [1.16.0] — Quartz Fox (2026-10-13)
 
 - Record unparseable `/write-config` request bodies in `pinger_config_reload_total` as a new `rejected_parse` result value: a body that fails JSON parsing (400) or exceeds the 100kb limit (413) was previously rejected only in the log and invisible to the metric, and is now counted distinctly from `rejected`, which still covers validation, write, and load failures of a parsed configuration
