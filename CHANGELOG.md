@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.0] — Quartz Fox (2026-10-13)
+
+- Record unparseable `/write-config` request bodies in `pinger_config_reload_total` as a new `rejected_parse` result value: a body that fails JSON parsing (400) or exceeds the 100kb limit (413) was previously rejected only in the log and invisible to the metric, and is now counted distinctly from `rejected`, which still covers validation, write, and load failures of a parsed configuration
+
 ## [1.15.2] — Ceramic Fox (2026-10-13)
 
 - Reject the reserved IPv4 addresses `0.0.0.0` (unspecified) and `255.255.255.255` (limited broadcast) as ping targets: `GET /ping/:target` now answers 400 for them instead of pinging an address that can never respond and reporting it as down

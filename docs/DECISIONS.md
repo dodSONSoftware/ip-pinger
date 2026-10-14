@@ -37,3 +37,7 @@ This document records design decisions visible in the implementation, their rati
 ## D-009 — Internal-network HTTP API
 
 **Decision:** Expose configuration-write routes and CORS without built-in authentication/TLS. **Rationale:** Implementation targets trusted, private-network deployment. **Consequence:** Restrict network access externally; never publish port 32001 unprotected to untrusted networks.
+
+## D-010 — Distinct `rejected_parse` outcome for unparseable config-write bodies
+
+**Decision:** `pinger_config_reload_total` gains a `rejected_parse` result value, recorded by the shared error middleware when a body-parser entity error (400 malformed / 413 too large) reaches it for `POST /write-config`. **Rationale:** a body that fails JSON parsing never forms a candidate configuration, so it is a distinct class from `rejected` (which covers validation, write, and load failures acting on a parsed config); recording it in the metric, not only the log, lets Prometheus alert on it. **Consequence:** the `result` label set grows by one value; existing `success`/`rejected` series are unaffected.

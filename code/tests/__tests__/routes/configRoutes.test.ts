@@ -107,9 +107,10 @@ async function postConfig(payload: Record<string, unknown>): Promise<{ status: n
 }
 
 // Raw-body variant: posts the string as-is so malformed JSON reaches the
-// body parser instead of being stringified into a valid payload.
-async function postRaw(body: string): Promise<{ status: number; body: Record<string, unknown> }> {
-    const res = await fetch(baseUrl + "/write-config", {
+// body parser instead of being stringified into a valid payload. Takes a
+// path so parse failures on non-config routes can be tested too.
+async function postRawTo(path: string, body: string): Promise<{ status: number; body: Record<string, unknown> }> {
+    const res = await fetch(baseUrl + path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
@@ -277,11 +278,11 @@ describe("/write-config (validation)", () => {
     });
 });
 
-describe("/write-config (malformed JSON body)", () => {
-    it("answers a malformed JSON body with 400 instead of 500", async () => {
+describe("/write-config (unparseable JSON body)", () => {
+    it("answers a malformed JSON body with 400 instead of 500 and records rejected_parse", async () => {
         const before = fs.readFileSync(CONFIG_FILE, "utf-8");
 
-        const { status, body } = await postRaw('{"logLevel": "info",');
+        const { status, body } = await postRawTo("/write-config", '{"logLevel": "info",');
 
         // The body-parser message fragment varies by Node version, so only
         // assert on the middleware-owned prefix.
@@ -290,6 +291,33 @@ describe("/write-config (malformed JSON body)", () => {
         expect(String(body.message)).toContain("ERROR: POST /write-config failed");
         expect(updateConfig).not.toHaveBeenCalled();
         expect(fs.readFileSync(CONFIG_FILE, "utf-8")).toBe(before);
+
+        // The body never reached the handler, so only the error middleware
+        // can record the outcome — it must surface as rejected_parse
+        expect(recordConfigReload).toHaveBeenCalledTimes(1);
+        expect(recordConfigReload).toHaveBeenCalledWith("rejected_parse");
+    });
+
+    it("answers an oversized JSON body with 413 and records rejected_parse", async () => {
+        // body-parser's default limit is 100kb
+        const { status, body } = await postRawTo("/write-config", `{"pad":"${"x".repeat(120000)}"}`);
+
+        expect(status).toBe(413);
+        expect(body.success).toBe(false);
+        expect(String(body.message)).toContain("ERROR: POST /write-config failed");
+        expect(updateConfig).not.toHaveBeenCalled();
+        expect(recordConfigReload).toHaveBeenCalledTimes(1);
+        expect(recordConfigReload).toHaveBeenCalledWith("rejected_parse");
+    });
+
+    it("does not record a parse failure on a non-config route as a reload attempt", async () => {
+        // Body parsing is app-wide, so a malformed body on any route reaches
+        // the error middleware — but only the config-write route is a
+        // configuration reload attempt
+        const { status } = await postRawTo("/read-config", '{"logLevel": "info",');
+
+        expect(status).toBe(400);
+        expect(recordConfigReload).not.toHaveBeenCalled();
     });
 });
 

@@ -95,9 +95,13 @@ export class ConsoleLogger implements ILogger {
 // **** Pinger
 
 // Outcome of a configuration reload attempt — the result label values of
-// pinger_config_reload_total. "rejected" covers every failure to apply:
-// validation rejection, configuration file write failure, and load failure.
-export type ConfigReloadResult = "success" | "rejected";
+// pinger_config_reload_total. "rejected" covers every failure to apply a
+// parsed configuration: validation rejection, configuration file write
+// failure, and load failure. "rejected_parse" covers a request body that
+// failed JSON parsing (400 malformed / 413 too large) before a candidate
+// configuration was ever formed — it is recorded by the error middleware,
+// the only place such a failure surfaces (the route handler never runs).
+export type ConfigReloadResult = "success" | "rejected" | "rejected_parse";
 
 // Outcome of an on-demand ping via the /ping endpoints — the result label
 // values of pinger_adhoc_ping_total. "down" is a completed ping the device

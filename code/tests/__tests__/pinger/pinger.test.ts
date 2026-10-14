@@ -821,10 +821,12 @@ describe("Pinger (application-level metrics)", () => {
         pinger.recordConfigReload("success");
         pinger.recordConfigReload("rejected");
         pinger.recordConfigReload("rejected");
+        pinger.recordConfigReload("rejected_parse");
 
         const output = await register.metrics();
         expect(output).toMatch(/^pinger_config_reload_total\{result="success"\} 1$/m);
         expect(output).toMatch(/^pinger_config_reload_total\{result="rejected"\} 2$/m);
+        expect(output).toMatch(/^pinger_config_reload_total\{result="rejected_parse"\} 1$/m);
 
         await pinger.close();
     });

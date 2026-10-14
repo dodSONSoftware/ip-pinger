@@ -849,7 +849,10 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     // failure, and this middleware turns each handoff into a logged,
     // controlled JSON response instead of an unhandled rejection that
     // could crash the process. It must be registered after all routes so it
-    // only receives forwarded errors, not unmatched requests.
+    // only receives forwarded errors, not unmatched requests. It is also the
+    // single place a body-parser failure on /write-config surfaces (the
+    // handler never runs), so it records those as rejected_parse in
+    // pinger_config_reload_total — see the guard below.
     app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
         const err = ensureError(error);
 
@@ -858,11 +861,27 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
         // error; respect it so client errors are not answered as a server
         // failure. Anything without an integer 400-599 status (e.g., a
         // rejecting route handler) is a server failure and keeps the 500.
-        const errWithStatus = err as Error & { status?: unknown; statusCode?: unknown };
+        const errWithStatus = err as Error & { status?: unknown; statusCode?: unknown; type?: unknown };
         const carried = Number(errWithStatus.status ?? errWithStatus.statusCode);
         const httpStatus = Number.isInteger(carried) && carried >= _400 && carried <= 599
             ? carried
             : InternalServerError;
+
+        // A request body that failed JSON parsing (400 malformed / 413 too
+        // large) on the config-write route never reaches the /write-config
+        // handler, whose recordConfigReload calls therefore never run. Record
+        // it here as the distinct rejected_parse outcome so it is visible in
+        // the metric, not only the log. The route guard is required: body
+        // parsing is app-wide, so a parse failure on any other route is not a
+        // configuration reload attempt.
+        if (
+            req.method === "POST" &&
+            req.path === "/write-config" &&
+            typeof errWithStatus.type === "string" &&
+            errWithStatus.type.startsWith("entity.")
+        ) {
+            recordConfigReload("rejected_parse");
+        }
 
         if (res.headersSent) {
             // The response already started; defer to Express's default

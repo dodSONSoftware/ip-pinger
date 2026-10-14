@@ -58,7 +58,7 @@ Every endpoint is on port 32001; Swagger is at `/swagger`.
 | GET | `/health` | 200 if operational, 503 after fatal session failure |
 | GET | `/swagger` | API documentation UI |
 
-Express async handlers explicitly call `next(error)`; final error middleware preserves forwarded HTTP 4xx/5xx errors and otherwise returns 500. CORS and JSON body parsing are enabled.
+Express async handlers explicitly call `next(error)`; final error middleware preserves forwarded HTTP 4xx/5xx errors and otherwise returns 500. CORS and JSON body parsing are enabled. Body-parser failures on `POST /write-config` (400 malformed / 413 too large) never reach the route handler, so the error middleware also records them as `pinger_config_reload_total{result="rejected_parse"}`.
 
 ## Metrics
 

@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Ceramic Fox — version 1.15.2.
+**Release:** Quartz Fox — version 1.16.0.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -254,7 +254,7 @@ The state of the service itself, so Prometheus can alert on the pinger the same 
 | `pinger_operational` | Gauge | — | 1 while the pinger can run cycles, 0 after a fatal net-ping session failure (mirrors `/health`) |
 | `pinger_last_cycle_timestamp` | Gauge | — | Unix timestamp of the last completed ping cycle |
 | `pinger_config_pending_update` | Gauge | — | 1 while a configuration update waits for the ping cycle boundary, 0 otherwise |
-| `pinger_config_reload_total` | Counter | `result` | Configuration reload attempts; `result` is `success` or `rejected` |
+| `pinger_config_reload_total` | Counter | `result` | Configuration reload attempts; `result` is `success`, `rejected`, or `rejected_parse` (an unparseable `/write-config` body — 400 malformed / 413 too large) |
 | `pinger_config_loaded_timestamp` | Gauge | — | Unix timestamp of when the live configuration was last applied |
 | `pinger_config_devices` | Gauge | — | Number of devices in the live configuration |
 | `pinger_cycle_delay_seconds` | Histogram | `reason` | Delay of a cycle start beyond its scheduled deadline; `reason` is `interval`, `config_changed`, or `shutdown` |

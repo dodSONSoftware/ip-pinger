@@ -181,7 +181,7 @@ export class Pinger implements dli.IPinger {
 
         this.prometheus_Pinger_Config_Reload_Total = new Counter({
             name: `pinger_config_reload_total`,
-            help: "Configuration reload attempts by result (rejected covers validation, write, and load failures).",
+            help: "Configuration reload attempts by result (rejected covers validation, write, and load failures; rejected_parse covers request bodies that failed JSON parsing — 400 or 413 — before a candidate configuration was formed).",
             labelNames: ["result"],
         });
 
