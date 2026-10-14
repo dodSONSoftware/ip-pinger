@@ -555,10 +555,6 @@ export class Pinger implements dli.IPinger {
         this.logger.write_info(this.originator + ".close", `Pinger closed.`);
     }
 
-    public getLogger(): dli.ILogger {
-        return this.logger;
-    }
-
     /**
      * True while the pinger can still perform ping cycles. Once the
      * net-ping session has failed unexpectedly the pinger is permanently

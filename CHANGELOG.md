@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.5] — Quartz Fox (2026-10-14)
+
+- Remove the unused `Pinger.getLogger()` public method: it was not on the `IPinger` interface and had no callers in the application or the test suite, so it advertised a logger access point that nothing consumed
+
 ## [1.16.4] — Quartz Fox (2026-10-14)
 
 - Register the swagger routes before the route set (and its shared error middleware) in the Pinger constructor: an Express 4 error handler only sees errors from layers above it, so the previously-registered swagger routes could reach Express's default 500 handler instead of the application's error response, and the middleware is now pinned as the final layer of the app with a stack-order regression test
