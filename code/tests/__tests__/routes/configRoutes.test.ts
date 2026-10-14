@@ -593,3 +593,41 @@ describe("removed apiPort option", () => {
         expect(read.body.apiPort).toBeUndefined();
     });
 });
+
+describe("/write-config (concurrent writes)", () => {
+    it("keeps the applied configuration in sync with the file under overlapping writes", async () => {
+        const [first, second] = await Promise.all([
+            postConfig({
+                logLevel: "info",
+                intervalSecs: 31,
+                lokiEnabled: false,
+                devices: [deviceA],
+            }),
+            postConfig({
+                logLevel: "info",
+                intervalSecs: 32,
+                lokiEnabled: false,
+                devices: [deviceA, deviceB],
+            }),
+        ]);
+
+        expect(first.status).toBe(200);
+        expect(second.status).toBe(200);
+        expect(first.body.success).toBe(true);
+        expect(second.body.success).toBe(true);
+        expect(updateConfig).toHaveBeenCalledTimes(2);
+        expect(recordConfigReload).toHaveBeenCalledTimes(2);
+        expect(recordConfigReload).toHaveBeenNthCalledWith(1, "success");
+        expect(recordConfigReload).toHaveBeenNthCalledWith(2, "success");
+
+        // The configuration last applied must be the one now on disk: a
+        // response may never claim a payload that was not what got applied,
+        // no matter how the two validate→persist→apply sequences interleaved.
+        const lastApplied = updateConfig.mock.calls[updateConfig.mock.calls.length - 1][0] as IConfig;
+        expect([31, 32]).toContain(lastApplied.intervalSecs);
+        const onDisk = await get("/read-config");
+        expect(onDisk.status).toBe(200);
+        expect(onDisk.body.intervalSecs).toBe(lastApplied.intervalSecs);
+        expect(onDisk.body.devices as IDevice[]).toHaveLength(lastApplied.devices.length);
+    });
+});

@@ -270,6 +270,31 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
         }
     };
 
+    // The validate→persist→apply sequences of /write-config and
+    // /reload-config run under this lock so two overlapping requests can
+    // never interleave and one response can claim a payload that was not
+    // what got applied. Today both handlers are fully synchronous, so the
+    // event loop already serializes them; the lock makes the invariant
+    // structural — it stays true if a future edit introduces an async step
+    // (e.g. fs.promises) anywhere mid-sequence.
+    let configSequenceBusy = false;
+    const configSequenceWaiters: Array<() => void> = [];
+    function withConfigSequence(run: () => Promise<void>): void {
+        const finish = (): void => {
+            configSequenceBusy = false;
+            configSequenceWaiters.shift()?.();
+        };
+        const attempt = (): void => {
+            if (configSequenceBusy) {
+                configSequenceWaiters.push(attempt);
+                return;
+            }
+            configSequenceBusy = true;
+            void run().then(finish, finish);
+        };
+        attempt();
+    }
+
     /**
      * @swagger
      * /about:
@@ -549,6 +574,15 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *         description: Unexpected server-side failure while processing the payload
      */
     app.route("/write-config").post((req: express.Request, res: express.Response) => {
+        // The full validate→persist→apply sequence runs under the
+        // config-sequence lock (see above), so an overlapping /write-config
+        // or /reload-config cannot interleave with it; every path in
+        // doWriteConfig responds, so no response is left dangling behind a
+        // request still in flight.
+        withConfigSequence(() => doWriteConfig(req, res));
+    });
+
+    async function doWriteConfig(req: express.Request, res: express.Response): Promise<void> {
         try {
             // get body as json and verify
             const json_str = JSON.stringify(req.body);
@@ -642,7 +676,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 message: `ERROR: Internal error while processing the configuration payload: ${err.message}`
             });
         }
-    });
+    }
 
     /**
      * @swagger
@@ -668,6 +702,13 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *         description: Invalid configuration on disk or could not find config file
      */
     app.route("/reload-config").get((req: express.Request, res: express.Response) => {
+        // The load→apply sequence runs under the same config-sequence lock
+        // as /write-config (see above), so a reload cannot interleave with a
+        // write that is mid-sequence on the shared file.
+        withConfigSequence(() => doReloadConfig(req, res));
+    });
+
+    async function doReloadConfig(req: express.Request, res: express.Response): Promise<void> {
         try {
             // Use loadConfig to properly parse and convert the config.
             // No logger: the catch below is the single logging point for a
@@ -720,7 +761,7 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 message: `ERROR: Failed to reload configuration: ${err.message}`
             });
         }
-    });
+    }
 
     /**
      * @swagger

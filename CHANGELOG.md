@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.2] — Quartz Fox (2026-10-14)
+
+- Serialize the `/write-config` and `/reload-config` validate→persist→apply sequences behind a route-local lock so two overlapping configuration requests can never interleave on the shared config file and one response can claim a payload that was not what got applied: today both handlers are fully synchronous, so the event loop already serializes them, but the lock makes the invariant structural — it stays true if a future edit introduces an async step anywhere mid-sequence — and a regression test pins the invariant (the last applied configuration always matches the configuration on disk)
+
 ## [1.16.1] — Quartz Fox (2026-10-13)
 
 - Reject `intervalSecs` values above `86400` (one day) in the configuration schema: Node clamps a timer delay above 2^31-1 milliseconds to 1 millisecond, so an interval whose millisecond form overflows (e.g. `3000000000`) would silently turn the ping scheduler into a ~1 ms hot loop that pings every configured device as fast as the network allows; such values are now refused at startup and at `/write-config`/`/reload-config` with a field-named error, and a rejected `/write-config` payload is recorded as `rejected` in `pinger_config_reload_total`

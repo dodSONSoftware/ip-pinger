@@ -41,6 +41,7 @@ A device identity is the triple `(ipAddress, source, deviceType)`. Two entries c
 - `GET /reload-config` validates the current file and requests an update. Invalid or unreadable file returns 400.
 - Successful write/reload responses include `restartRequired: boolean`, evaluated against the **original startup** values of `logLevel`, `lokiUrl`, and `lokiEnabled`. A true value means those settings are stored but not active until restart.
 - Live settings apply immediately when idle; updates during a cycle are deferred until the cycle boundary. Validation precedes persistence and application. A reload does not reset unrelated Prometheus series.
+- The validate→persist→apply sequence of `/write-config` and `/reload-config` runs under a route-local lock, so two overlapping requests cannot interleave on the shared file: the configuration a response reports as applied is always the configuration on disk.
 
 ## Logging
 
