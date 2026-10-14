@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.3] — Quartz Fox (2026-10-14)
+
+- Resolve the package name for the boot log from a path relative to the compiled entry point (`path.join(__dirname, "..", "package.json")`) instead of the hard-coded container path `/app/package.json`, which never exists outside the image: a locally built or `ts-node` development run logged `Booting Unknown App v…` instead of `Booting ip-pinger v…`, and the container behavior is unchanged because the same join resolves to `/app/package.json` there
+
 ## [1.16.2] — Quartz Fox (2026-10-14)
 
 - Serialize the `/write-config` and `/reload-config` validate→persist→apply sequences behind a route-local lock so two overlapping configuration requests can never interleave on the shared config file and one response can claim a payload that was not what got applied: today both handlers are fully synchronous, so the event loop already serializes them, but the lock makes the invariant structural — it stays true if a future edit introduces an async step anywhere mid-sequence — and a regression test pins the invariant (the last applied configuration always matches the configuration on disk)

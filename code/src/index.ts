@@ -11,6 +11,7 @@ import { loadConfig } from "./common";
 import { read_file_json } from "./systemFunctions";
 import { APP_VERSION } from "./version";
 import { collectDefaultMetrics } from "prom-client";
+import path from "path";
 
 // ******** global variables
 
@@ -23,7 +24,12 @@ let logger: interfaces.ILogger = new interfaces.ConsoleLogger(interfaces.LogLeve
 let pinger_dude: interfaces.IPinger;
 
 // ******** Load package info for logging
-const packageJsonPath = "/app/package.json";
+// Resolved relative to this file instead of hard-coded to the container
+// layout: __dirname is dist/ (or src/ under ts-node), so the join finds
+// code/package.json locally and /app/package.json in the image, where the
+// code lives at /app/dist. Without the match the boot log reports
+// "Unknown App" for the service name.
+const packageJsonPath = path.join(__dirname, "..", "package.json");
 const packageData = read_file_json(packageJsonPath);
 const appName = packageData?.get("name") ?? "Unknown App";
 
