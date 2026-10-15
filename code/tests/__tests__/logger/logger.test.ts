@@ -61,9 +61,13 @@ describe("Logger (Loki transport metrics)", () => {
         transports[transports.length - 1] = { flush: () => never };
 
         await logger.flush(50);
+        // A second back-to-back flush against the same unacknowledged queue
+        // must stay bounded and never throw — an overlapping shutdown and
+        // terminal exit can flush twice — and each timed-out call counts.
+        await logger.flush(50);
 
         const output = await register.metrics();
-        expect(output).toMatch(/^pinger_loki_flush_timeouts_total 1$/m);
+        expect(output).toMatch(/^pinger_loki_flush_timeouts_total 2$/m);
 
         // Stop the Batcher's batch loop (its final flush is a no-op: no
         // entries were ever logged to the transport)

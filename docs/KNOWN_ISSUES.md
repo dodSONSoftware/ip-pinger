@@ -12,6 +12,7 @@ This document tracks verified limitations and operational risks in the current i
 | KI-006 | Known limitation | No automatic device discovery; inventory is managed manually through YAML/API. | Maintain a curated `devices` array. |
 | KI-007 | Deployment caveat | `npm start` does not set `CONFIG_PATH`, and the Docker image does not bundle the runtime bind-mounted config path. | Export `CONFIG_PATH`; provision and mount config before launching. |
 | KI-008 | Resolved (2026-10-14) | `/write-config` persistence failures were returned as HTTP 400, even when caused by server permissions or I/O. | Fixed: the write-failure branch now answers 500 (the payload has already validated, so any `write_file` failure is a server-side filesystem fault); the response body remains diagnostic and the outcome still records `pinger_config_reload_total{result="rejected"}`. |
+| KI-009 | Resolved (2026-10-15) | The last ≤5 s of log entries — always including the shutdown lines — were lost from Loki on every graceful restart: the non-crash exit paths ran `process.exit` without flushing winston-loki's 5 s batch window, while the console record (synchronous transport) stayed complete. | Fixed in 1.16.11: the graceful signal shutdown and the fatal ping-engine termination now flush the Loki transport with a bounded 3 s timeout before exiting, mirroring the terminal error boundary; the flush-timeout warn and `pinger_loki_flush_timeouts_total` remain the observability surface if Loki is unreachable at exit. |
 
 ## Open verification items
 

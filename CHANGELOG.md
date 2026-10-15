@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.11] — Quartz Fox (2026-10-15)
+
+- All non-crash exits now flush the Loki transport before exiting (bounded by the existing 3 s flush timeout, mirroring the terminal error boundary): the graceful signal shutdown and the fatal ping-engine termination previously ran `process.exit` while winston-loki still held its 5 s batch window, so the last ≤5 s of every process lifetime — always including the `Received SIGTERM` / `Pinger closed.` shutdown lines and the tail of the final cycle — were missing from Loki while the console record was complete; a `terminating` guard keeps a process doomed by a terminal error from reporting a clean exit 0 while the shutdown flush is in flight (KI-009 resolved)
+
 ## [1.16.10] — Quartz Fox (2026-10-15)
 
 - `POST /write-config` persistence failures (server-side filesystem faults on `CONFIG_PATH` — EACCES, EBUSY, ENOSPC, …) now answer 500 instead of 400 (KI-008 resolved): by the time the write fails the payload has already passed schema validation, so the 400 mislabeled a genuine server fault as a client error and undercounted it in client-error monitoring; the diagnostic message, the byte-intact file, and the `pinger_config_reload_total{result="rejected"}` record are unchanged

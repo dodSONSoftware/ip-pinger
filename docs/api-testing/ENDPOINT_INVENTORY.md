@@ -34,7 +34,7 @@ The service exposes exactly nine API routes plus the Swagger UI. There are no un
 - **No authentication or TLS on any endpoint** (known limitation KI-001): anyone who can reach port 32001 can read the configuration (including the Loki URL and full device inventory via `/read-config`) and can rewrite monitoring targets via `POST /write-config`.
 - `/ping/:target` accepts **any** syntactically valid IPv4 address (no allowlist), so an unauthenticated client can make the service emit ICMP to arbitrary destinations (subject to KI-002 network constraints).
 - Responses do not leak stack traces or file paths beyond the error message text of server-side failures (e.g. `Failed to write file "<CONFIG_PATH>": ...` includes the configured path, which is deployment-specific but not a secret).
-- ~~`X-Powered-By: Express` was sent on responses (minor framework fingerprint)~~ — fixed 2026-10-14 via `express.disable("x-powered-by")` in the Pinger constructor (see DEFECTS D-003); the running instance still sends it until redeployed.
+- ~~`X-Powered-By: Express` was sent on responses (minor framework fingerprint)~~ — fixed 2026-10-14 via `express.disable("x-powered-by")` in the Pinger constructor (see DEFECTS D-003); confirmed absent on the running instance (v1.16.10) on 2026-10-15.
 
 ## State model
 

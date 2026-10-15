@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Quartz Fox — version 1.16.10.
+**Release:** Quartz Fox — version 1.16.11.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -28,7 +28,7 @@ Results are exposed via Prometheus-compatible metrics at the `/metrics` endpoint
 - **Scheduled pinging**: Configurable polling interval
 - **Prometheus metrics**: Full metric suite including histograms for latency distribution
 - **Hot-reload configuration**: Update device lists and settings without restarting
-- **Graceful shutdown**: SIGINT/SIGTERM cleanly close the HTTP API server and net-ping session before exiting
+- **Graceful shutdown**: SIGINT/SIGTERM cleanly close the HTTP API server and net-ping session, and flushes pending log entries to Loki, before exiting
 - **Swagger UI**: Interactive API documentation at `/swagger`
 - **Fixed port**: API and metrics on the single fixed port 32001 (not configurable)
 

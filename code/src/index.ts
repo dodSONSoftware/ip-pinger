@@ -101,7 +101,16 @@ async function shutdown(signal: string) {
         const err = sysFunc.ensureError(error);
         logger.write_error(originator + ".shutdown", `Error during shutdown: ${err.name}: ${err.message}`);
     } finally {
-        process.exit(0);
+        // Flush before the exit so the shutdown lines and the tail of the
+        // final cycle reach Loki instead of dying in the 5 s batch window
+        // (console is unaffected — the console transport is synchronous).
+        await flush_loki();
+        // A terminal error accepted while we were shutting down owns the
+        // exit: the process is doomed and exits 1 via terminal_exit's
+        // timer, and exiting 0 here would misreport a crash as a clean stop.
+        if (!terminating) {
+            process.exit(0);
+        }
     }
 }
 
@@ -135,6 +144,13 @@ async function main() {
                     const close_err = sysFunc.ensureError(close_error);
                     logger.write_error(originator + ".main", `Error during shutdown: ${close_err.name}: ${close_err.message}`);
                 }
+                // Flush like the signal shutdown: without it, the engine
+                // failure lines and "Pinger closed." die in winston-loki's
+                // 5 s batch window. A concurrent shutdown() can exit 0
+                // first if its flush resolves first; that race predates this
+                // change and is cosmetic — restart: unless-stopped restarts
+                // on either exit code.
+                await flush_loki();
                 process.exit(1);
             }
         }
@@ -172,6 +188,24 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 // naturally draining loop cannot exit 0 ahead of the forced non-zero exit.
 const LOKI_FLUSH_TIMEOUT_MS = 3000;
 
+// Bounded Loki flush shared by every exit path: the graceful signal
+// shutdown, the fatal ping-engine termination, and the terminal error
+// boundary. winston-loki holds entries for its 5 s send interval, so an
+// exit without an explicit flush discards the still-batched tail — which
+// on a shutdown always includes the shutdown lines themselves, since they
+// are logged microseconds before the exit. The wait is bounded by
+// LOKI_FLUSH_TIMEOUT_MS so an unreachable Loki cannot push the stop past
+// Docker's 10 s grace period. The bootstrap ConsoleLogger (a signal that
+// arrives before initialize() built the full Logger) has no Loki transport
+// to flush, so the guard makes that case a no-op; Logger.flush is
+// effectively total and never throws, so an exit path can await it in a
+// finally block without its own try/catch.
+async function flush_loki(): Promise<void> {
+    if (logger instanceof Logger) {
+        await logger.flush(LOKI_FLUSH_TIMEOUT_MS);
+    }
+}
+
 // Re-entrancy guard: after the first terminal error the process is already
 // doomed but the event loop still runs for the flush window — any further
 // terminal errors in that window are noise, so they are ignored rather than
@@ -188,11 +222,9 @@ async function terminal_exit(kind: string, err: unknown): Promise<void> {
     // console-only bootstrap logger; the full Logger replaces it once
     // initialize() succeeds.
     logger.write_error(originator + `.${kind}`, detail);
-    if (logger instanceof Logger) {
-        // Bounded: an unreachable Loki must not stall the shutdown. The
-        // bootstrap ConsoleLogger has no Loki transport to flush.
-        await logger.flush(LOKI_FLUSH_TIMEOUT_MS);
-    }
+    // Bounded flush, shared with the other exit paths (see flush_loki): an
+    // unreachable Loki must not stall the exit.
+    await flush_loki();
     setTimeout(() => process.exit(1), 0);
 }
 

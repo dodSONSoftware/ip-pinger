@@ -32,7 +32,7 @@ This document records design decisions visible in the implementation, their rati
 
 ## D-008 — Split console and Loki payloads
 
-**Decision:** Share severity filtering, but send full config dumps only to console and structured summaries to Loki; bound Loki flush on terminal failures. **Rationale:** Limit remote-log volume and shutdown stalls. **Consequence:** Detailed config dumps are not searchable in Loki; Loki transport errors have dedicated counters.
+**Decision:** Share severity filtering, but send full config dumps only to console and structured summaries to Loki; flush the Loki transport with a bounded timeout on every non-crash exit (graceful signal shutdown, fatal ping-engine termination, terminal unhandled errors). **Rationale:** Limit remote-log volume and shutdown stalls; winston-loki holds entries for its 5 s send interval, so an unflushed exit discards the shutdown tail — the bounded wait keeps an unreachable Loki from stalling any exit. **Consequence:** Detailed config dumps are not searchable in Loki; Loki transport errors have dedicated counters; a graceful stop can take up to ~3 s longer (within Docker's 10 s grace), and the shutdown lines and the final-cycle tail are queryable in Loki.
 
 ## D-009 — Internal-network HTTP API
 
