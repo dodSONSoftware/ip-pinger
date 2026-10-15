@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.19] — Quartz Fox (2026-10-15)
+
+- Removed the one-off API audit records from `docs/api-testing/` (endpoint inventory, per-endpoint results, the defect findings list, and the 2026-10-15 endpoint-exercise run report) — the findings and their remediation already shipped in the 1.16.10–1.16.18 release line, and the audited behavior stays pinned by `routes/apiSurface.test.ts`, so the audit artifacts no longer need to live in the repo; the now-stale links to them in `CLAUDE.md` and `docs/TESTING.md` were removed alongside. No behavior change
+
 ## [1.16.18] — Quartz Fox (2026-10-15)
 
 - The `/write-config` 500 response (the `doWriteConfig` catch branch — e.g. the post-write re-read fails) now states that the new configuration may already be persisted to the file even though the request failed, that the running service was not updated by it, and that `GET /reload-config` reconciles the service with the file on disk — closing the API audit's D-002 partial-apply window finding so the response itself points at the recovery path. The status code, `pinger_config_reload_total{result="rejected"}` recording, file state, and `/reload-config` recovery are unchanged; the fault-injected TC-WC-07 test now asserts the message text

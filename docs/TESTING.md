@@ -30,7 +30,7 @@ CONFIG_PATH="$PWD/dist/config.yml" npm start
 | `pinger/pinger.test.ts` | ICMP lifecycle, scheduler, metrics, reload/state handling |
 | `routes/configRoutes.test.ts` | Config routes, validation, persistence/reload responses |
 | `routes/pingRoutes.test.ts` | Ping routes and error handling |
-| `routes/apiSurface.test.ts` | Response shapes/headers, `/about`, `/endpoints`, `/metrics`, `/health`, ping parameter edge cases, validation boundaries, write/reload failure and race paths (2026-10-14 API audit; results in [api-testing](api-testing/TEST_RESULTS.md)) |
+| `routes/apiSurface.test.ts` | Response shapes/headers, `/about`, `/endpoints`, `/metrics`, `/health`, ping parameter edge cases, validation boundaries, write/reload failure and race paths (2026-10-14 API audit) |
 | `swagger/swagger.test.ts` | Swagger setup |
 | `systemFunctions/ensureError.test.ts` | Error normalization |
 | `systemFunctions/fileFunctions.test.ts` | File utilities |
@@ -42,7 +42,7 @@ Paths in the table are relative to `code/tests/__tests__/`.
 1. **Validation:** Missing `CONFIG_PATH`, omitted required keys, invalid IPv4/type, duplicate device identity, empty list, zero/negative/fractional interval, Loki enabled without URL. Confirm both boot and API rejection paths as relevant.
 2. **Reload:** Live `devices` and `intervalSecs` changes, deferred change during active cycle, cleanup of only removed metric label series, state baseline of re-added devices, retained counters for unchanged devices.
 3. **HTTP:** `/about`, `/endpoints`, `/health`, `/metrics`, `/ping`, `/ping/:target`, `/read-config`, `/write-config`, `/reload-config`, `/swagger`; explicit `next(error)` forwarding and JSON/body parser failures.
-4. **Network and shutdown:** Success, timeout, unreachable, exception, unexpected session close, SIGINT/SIGTERM while waiting or probing. Canceled probes must not inflate error metrics; fatal session failure must mark unhealthy. The shutdown tail (last ≤5 s of entries, including `Received SIGTERM…`/`Pinger closed.`) must reach Loki on a graceful restart — verified live rather than by a local suite: the fixed port 32001 and raw-socket ICMP make a child-process test infeasible in the standard environment (the flush mechanism itself is pinned by `logger/logger.test.ts`); see the 2026-10-15 run report in [api-testing](api-testing/2026-10-15-endpoint-exercise-and-loglevel-cycle.md).
+4. **Network and shutdown:** Success, timeout, unreachable, exception, unexpected session close, SIGINT/SIGTERM while waiting or probing. Canceled probes must not inflate error metrics; fatal session failure must mark unhealthy. The shutdown tail (last ≤5 s of entries, including `Received SIGTERM…`/`Pinger closed.`) must reach Loki on a graceful restart — verified live rather than by a local suite: the fixed port 32001 and raw-socket ICMP make a child-process test infeasible in the standard environment (the flush mechanism itself is pinned by `logger/logger.test.ts`).
 5. **Observability:** Default Node/process metrics are present once, latency sampled only on success, correct three-label device identities, error classifications, lifecycle/adhoc/config metrics, Loki failure and flush counters.
 6. **Deployment:** Build Docker image; mount writable config directory; ensure non-root process can replace YAML; verify health check on port 32001 and `NET_RAW` probing.
 

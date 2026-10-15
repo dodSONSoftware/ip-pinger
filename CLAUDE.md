@@ -28,7 +28,6 @@ Run commands from `code/` unless stated otherwise. Set `CONFIG_PATH` explicitly 
 - [System invariants](docs/INVARIANTS.md) — guarantees that must not regress
 - [Testing](docs/TESTING.md) — test suites, regression matrix and commands
 - [Known issues](docs/KNOWN_ISSUES.md) — constraints and operational risks
-- [API audit](docs/api-testing/TEST_RESULTS.md) — endpoint inventory, test results, and findings
 - [Changelog](CHANGELOG.md) — release history (newest first)
 - [README](README.md) — user-facing setup and API reference
 
