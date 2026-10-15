@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.12] — Quartz Fox (2026-10-15)
+
+- The exit-path Loki flush now delivers the shutdown tail deterministically instead of waiting out the transport's 5 s batch cycle: winston-loki's own `flush()` only observes the batch loop's next *scheduled* send and never triggers one, so the bounded 3 s wait expired first whenever the next tick was more than 3 s away — about 40% of graceful restarts — and the `Received SIGTERM` / `Pinger closed.` lines were still lost from Loki even with Loki healthy, with a spurious `Loki flush timed out` warn; `Logger.flush()` now triggers the transport's immediate final send (its `close()` stops the batch loop and sends the pending batch now) before the bounded wait, which is safe because the flush is only ever called from process-exit paths; a reachable Loki acknowledges the tail in milliseconds, an unreachable one is still bounded by the 3 s timeout (KI-010 resolved)
+
 ## [1.16.11] — Quartz Fox (2026-10-15)
 
 - All non-crash exits now flush the Loki transport before exiting (bounded by the existing 3 s flush timeout, mirroring the terminal error boundary): the graceful signal shutdown and the fatal ping-engine termination previously ran `process.exit` while winston-loki still held its 5 s batch window, so the last ≤5 s of every process lifetime — always including the `Received SIGTERM` / `Pinger closed.` shutdown lines and the tail of the final cycle — were missing from Loki while the console record was complete; a `terminating` guard keeps a process doomed by a terminal error from reporting a clean exit 0 while the shutdown flush is in flight (KI-009 resolved)

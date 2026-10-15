@@ -236,11 +236,32 @@ export class Logger implements ILogger {
     }
 
     /**
-     * Waits for the Loki transport to confirm receipt of every entry queued
-     * so far (its async flush() resolves only after Loki acknowledges).
-     * Resolves immediately when no Loki transport is configured. Bounded by
-     * timeoutMs so an unreachable Loki cannot stall the caller — e.g. the
-     * terminal error boundary, which must exit even when Loki is down.
+     * Sends every entry queued in the Loki transport right now, and waits
+     * (bounded) for that send attempt to complete.
+     *
+     * The send is triggered explicitly: winston-loki's own flush()
+     * (waitFlushed) only waits passively for the batch loop's next
+     * SCHEDULED send — the 5 s default interval — and never starts one.
+     * The bounded wait below is shorter than that interval, so a plain
+     * wait expires before the tick whenever it is more than timeoutMs
+     * away, and the queued tail — which on a shutdown includes the
+     * shutdown lines themselves, logged microseconds earlier — dies in
+     * the in-memory batch with process.exit() even when Loki is healthy.
+     * The transport's close() is the trigger: it stops the batch loop and
+     * performs an immediate final send, so a reachable Loki acknowledges
+     * the tail in milliseconds, and an unreachable one is still bounded
+     * by timeoutMs.
+     *
+     * close() permanently stops the batch loop, which is safe here because
+     * flush() is only ever called from process-exit paths (the graceful
+     * signal shutdown, the fatal ping-engine termination, and the terminal
+     * error boundary).
+     *
+     * Resolves immediately when no Loki transport is configured. The wait
+     * ends when the send ATTEMPT completes, success or failure: a refused
+     * send requeues its entries (lost if the process exits next) and is
+     * counted in pinger_loki_send_failures_total, not in the
+     * flush-timeout counter.
      */
     async flush(timeoutMs: number): Promise<void> {
         // Only the Loki transport implements an async flush(); the console
@@ -253,6 +274,10 @@ export class Logger implements ILogger {
         if (!loki) {
             return;
         }
+        // Trigger the immediate final send (see the method comment).
+        // Optional on purpose: a swapped-in transport without close() still
+        // gets the bounded wait below.
+        (loki as unknown as { close?: () => unknown }).close?.();
         let timer: NodeJS.Timeout | undefined;
         try {
             const outcome = await Promise.race([
