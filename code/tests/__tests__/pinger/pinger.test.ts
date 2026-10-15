@@ -537,6 +537,38 @@ describe("Pinger.start() (API listener startup)", () => {
         }
     });
 
+    it("does not advertise the framework (no X-Powered-By header) on API responses", async () => {
+        const pinger = await createPinger(makeConfig([deviceA]));
+        const port = ((pinger as unknown as { api_server: http.Server }).api_server.address() as { port: number }).port;
+
+        const headers = await new Promise<http.IncomingHttpHeaders>((resolve, reject) => {
+            http.get({ host: "127.0.0.1", port: port, path: "/health" }, (res) => {
+                res.resume();
+                res.on("end", () => resolve(res.headers));
+            }).on("error", reject);
+        });
+
+        expect(headers["x-powered-by"]).toBeUndefined();
+        // The suppression only removes the header; the response itself is intact
+        expect(headers["content-type"]).toContain("application/json");
+    });
+
+    it("answers unmatched requests in the app's JSON error shape (404 unknown path, 405 wrong verb)", async () => {
+        const pinger = await createPinger(makeConfig([deviceA]));
+        const port = ((pinger as unknown as { api_server: http.Server }).api_server.address() as { port: number }).port;
+
+        const notFound = await fetch(`http://127.0.0.1:${port}/no-such-path`);
+        expect(notFound.status).toBe(404);
+        expect(notFound.headers.get("content-type")).toContain("application/json");
+        expect(((await notFound.json()) as Record<string, unknown>).success).toBe(false);
+
+        const notAllowed = await fetch(`http://127.0.0.1:${port}/health`, { method: "POST" });
+        expect(notAllowed.status).toBe(405);
+        expect(notAllowed.headers.get("content-type")).toContain("application/json");
+        expect(notAllowed.headers.get("allow")).toBe("GET, HEAD");
+        expect(((await notAllowed.json()) as Record<string, unknown>).success).toBe(false);
+    });
+
     it("rejects when the API port is already in use (EADDRINUSE) and the pinger never reaches a listening state", async () => {
         // Occupy an ephemeral port with a throwaway server
         const blocker = http.createServer();

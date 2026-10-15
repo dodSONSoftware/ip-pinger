@@ -37,7 +37,7 @@ A device identity is the triple `(ipAddress, source, deviceType)`. Two entries c
 ## Runtime configuration API
 
 - `GET /read-config` returns file content, not necessarily the configuration currently applied to the in-flight cycle.
-- `POST /write-config` accepts a JSON configuration object, validates it, writes formatted YAML to `CONFIG_PATH`, re-reads it, and requests an update. Invalid payloads return 400; persistence failures currently also return 400; unexpected processing failures return 500.
+- `POST /write-config` accepts a JSON configuration object, validates it, writes formatted YAML to `CONFIG_PATH`, re-reads it, and requests an update. Invalid payloads return 400; persistence failures (server-side I/O faults on `CONFIG_PATH`) return 500; unexpected processing failures return 500.
 - `GET /reload-config` validates the current file and requests an update. Invalid or unreadable file returns 400.
 - Successful write/reload responses include `restartRequired: boolean`, evaluated against the **original startup** values of `logLevel`, `lokiUrl`, and `lokiEnabled`. A true value means those settings are stored but not active until restart.
 - Live settings apply immediately when idle; updates during a cycle are deferred until the cycle boundary. Validation precedes persistence and application. A reload does not reset unrelated Prometheus series.

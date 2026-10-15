@@ -229,6 +229,11 @@ export class Pinger implements dli.IPinger {
         // init
         this.express = express();
 
+        // The API is unauthenticated (KI-001), so do not hand a remote
+        // caller a framework fingerprint: suppress the default
+        // X-Powered-By: Express response header
+        this.express.disable("x-powered-by");
+
         // ******** SETUP MIDDLEWARE
 
         // add CORS

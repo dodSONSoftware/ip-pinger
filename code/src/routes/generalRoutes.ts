@@ -20,6 +20,8 @@ import { register } from "prom-client";
 
 export const OK = 200;
 export const _400 = 400;
+export const _404 = 404;
+export const _405 = 405;
 export const InternalServerError = 500;
 export const ServiceUnavailable = 503;
 
@@ -536,9 +538,9 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                   "message": "Configuration updated successfully."
      *               }
      *       400:
-     *         description: Bad Request
+     *         description: The payload failed schema validation
      *       500:
-     *         description: Unexpected server-side failure while processing the payload
+     *         description: The payload validated but could not be persisted to the configuration file (server-side I/O failure), or an unexpected server-side failure occurred while processing the payload
      */
     app.route("/write-config").post((req: express.Request, res: express.Response) => {
         // The full validate→persist→apply sequence runs under the
@@ -567,9 +569,14 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
                 const writeSuccess = write_file(getConfigPath(), yamlStr, log_writer);
 
                 if (!writeSuccess.success) {
-                    // The payload validated, but nothing was applied
+                    // The payload validated, but nothing was applied. Every
+                    // failure that can reach this branch is a server-side
+                    // filesystem fault on CONFIG_PATH (EACCES, EBUSY,
+                    // ENOSPC, ...), not a client error — answer 500 so
+                    // client-error monitoring does not absorb a genuine
+                    // server fault (KI-008)
                     recordConfigReload("rejected");
-                    res.status(_400).json({
+                    res.status(InternalServerError).json({
                         success: false,
                         message: writeSuccess.error || `ERROR: Failed to write configuration file.`
                     });
@@ -851,6 +858,53 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      */
     app.route("/endpoints").get((req: express.Request, res: express.Response) => {
         res.type(Json).status(OK).json(endpointsInfo);
+    });
+
+    // **** Unmatched-request terminal (404 / 405)
+    // Express 4's router neither synthesizes a 405 for a registered path
+    // hit with an unregistered verb nor answers its default 404/405 with
+    // the controlled JSON shape every other failure in this API answers.
+    // This terminal, registered after all routes and before the error
+    // handler, answers both in the app's JSON shape. Its path matching
+    // mirrors the router's own — pathname without the query string, one
+    // trailing slash lenient, ":param" segments matching any single
+    // non-slash segment — and runs against the same endpointsInfo catalog
+    // that serves /endpoints and /about, so the listing and this terminal
+    // cannot drift apart.
+    function isRouteTemplateMatch(routePath: string, target: string): boolean {
+        const pattern = routePath.split("/");
+        const actual = target.split("/");
+        if (pattern.length !== actual.length) {
+            return false;
+        }
+        return pattern.every((segment, index) => segment.startsWith(":") || segment === actual[index]);
+    }
+
+    app.use((req: express.Request, res: express.Response) => {
+        // Match the pathname without the query string, the way the router does
+        const target = req.url.split("?")[0];
+        const normalized = target.length > 1 && target.endsWith("/") ? target.slice(0, -1) : target;
+
+        // A path a registered route template owns is a 405 when the request
+        // verb is not the route's — never a 404. GET routes also answer HEAD
+        // (Express's Route registers it automatically), so allow it there.
+        const entry = endpointsInfo.endpoints.find((candidate) => isRouteTemplateMatch(candidate.route, normalized));
+        if (entry !== undefined) {
+            const allowsMethod = entry.verb === req.method || (entry.verb === "GET" && req.method === "HEAD");
+            if (!allowsMethod) {
+                const allowed = entry.verb === "GET" ? "GET, HEAD" : entry.verb;
+                res.type(Json).status(_405).set("Allow", allowed).json({
+                    success: false,
+                    message: `ERROR: ${req.method} ${req.url} method not allowed. Allowed: ${allowed}.`
+                });
+                return;
+            }
+        }
+
+        res.type(Json).status(_404).json({
+            success: false,
+            message: `ERROR: ${req.method} ${req.url} not found.`
+        });
     });
 
     // **** Application-level error handler

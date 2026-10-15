@@ -11,7 +11,7 @@ This document tracks verified limitations and operational risks in the current i
 | KI-005 | Observability caveat | `pinged_roundtrip_ms` retains last successful reading while device is down; the timestamp and `pinged` status must be consulted. | Gate latency dashboards/alerts on `pinged == 1`. |
 | KI-006 | Known limitation | No automatic device discovery; inventory is managed manually through YAML/API. | Maintain a curated `devices` array. |
 | KI-007 | Deployment caveat | `npm start` does not set `CONFIG_PATH`, and the Docker image does not bundle the runtime bind-mounted config path. | Export `CONFIG_PATH`; provision and mount config before launching. |
-| KI-008 | API semantics | `/write-config` persistence failures are currently returned as HTTP 400, even when caused by server permissions or I/O. | Treat response body as diagnostic; consider server-side 5xx for I/O errors in a future change. |
+| KI-008 | Resolved (2026-10-14) | `/write-config` persistence failures were returned as HTTP 400, even when caused by server permissions or I/O. | Fixed: the write-failure branch now answers 500 (the payload has already validated, so any `write_file` failure is a server-side filesystem fault); the response body remains diagnostic and the outcome still records `pinger_config_reload_total{result="rejected"}`. |
 
 ## Open verification items
 

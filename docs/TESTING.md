@@ -30,6 +30,7 @@ CONFIG_PATH="$PWD/dist/config.yml" npm start
 | `pinger/pinger.test.ts` | ICMP lifecycle, scheduler, metrics, reload/state handling |
 | `routes/configRoutes.test.ts` | Config routes, validation, persistence/reload responses |
 | `routes/pingRoutes.test.ts` | Ping routes and error handling |
+| `routes/apiSurface.test.ts` | Response shapes/headers, `/about`, `/endpoints`, `/metrics`, `/health`, ping parameter edge cases, validation boundaries, write/reload failure and race paths (2026-10-14 API audit; results in [api-testing](api-testing/TEST_RESULTS.md)) |
 | `swagger/swagger.test.ts` | Swagger setup |
 | `systemFunctions/ensureError.test.ts` | Error normalization |
 | `systemFunctions/fileFunctions.test.ts` | File utilities |

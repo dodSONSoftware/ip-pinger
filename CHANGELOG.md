@@ -3,6 +3,13 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.10] — Quartz Fox (2026-10-15)
+
+- `POST /write-config` persistence failures (server-side filesystem faults on `CONFIG_PATH` — EACCES, EBUSY, ENOSPC, …) now answer 500 instead of 400 (KI-008 resolved): by the time the write fails the payload has already passed schema validation, so the 400 mislabeled a genuine server fault as a client error and undercounted it in client-error monitoring; the diagnostic message, the byte-intact file, and the `pinger_config_reload_total{result="rejected"}` record are unchanged
+- Unmatched requests now receive the API's controlled JSON error shape instead of Express's default HTML: a terminal middleware registered after all routes and before the error handler answers unknown paths with 404 JSON and registered paths hit with an unregistered verb with 405 JSON carrying an `Allow` header (`GET, HEAD` on GET routes, `POST` on `/write-config`); path templates are matched against the shared `endpointsInfo` catalog, so this surface cannot drift from `/endpoints` or `/about`
+- The `X-Powered-By: Express` response header is suppressed: the API is unauthenticated (KI-001), and a remote caller no longer receives a framework fingerprint that would ease targeted attacks against known Express versions
+- Added the 2026-10-14 API audit: `docs/api-testing/` holds the endpoint inventory, per-endpoint test results (193 automated tests plus 15 live read-only probes), and the defect findings; a new 52-case `apiSurface.test.ts` suite pins response shapes and headers, `/about`/`/endpoints`/`/metrics`/`/health` behavior, ping parameter edge cases, validation boundaries, and the write/reload failure and race paths — the audit found no P0–P2 defects, and the three fixes above are its remediation
+
 ## [1.16.9] — Quartz Fox (2026-10-14)
 
 - Drop the JSON round-trip in `POST /write-config`: the handler now validates `req.body` directly with `validateParsedConfig` instead of serializing it back to a string and re-parsing it through `validateConfig` — Express has already parsed the body, so the extra `JSON.stringify` → YAML-parse cycle added no validation value, and the persist step was already re-serializing the validated data to YAML independently

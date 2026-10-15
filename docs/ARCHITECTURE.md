@@ -58,7 +58,7 @@ Every endpoint is on port 32001; Swagger is at `/swagger`.
 | GET | `/health` | 200 if operational, 503 after fatal session failure |
 | GET | `/swagger` | API documentation UI |
 
-Express async handlers explicitly call `next(error)`; final error middleware preserves forwarded HTTP 4xx/5xx errors and otherwise returns 500. CORS and JSON body parsing are enabled. Body-parser failures on `POST /write-config` (400 malformed / 413 too large) never reach the route handler, so the error middleware also records them as `pinger_config_reload_total{result="rejected_parse"}`.
+Express async handlers explicitly call `next(error)`; final error middleware preserves forwarded HTTP 4xx/5xx errors and otherwise returns 500. CORS and JSON body parsing are enabled. A terminal middleware registered after all routes and before the error handler answers Express's otherwise-HTML unmatched-request surfaces in the app's JSON error shape: unknown paths get 404, and a registered path hit with an unregistered verb gets 405 with an `Allow` header (path templates are matched against the `endpointsInfo` catalog, so the surface stays aligned with `/endpoints` and `/about`). Body-parser failures on `POST /write-config` (400 malformed / 413 too large) never reach the route handler, so the error middleware also records them as `pinger_config_reload_total{result="rejected_parse"}`.
 
 ## Metrics
 
