@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Quartz Fox — version 1.16.16.
+**Release:** Quartz Fox — version 1.16.17.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -261,6 +261,7 @@ The state of the service itself, so Prometheus can alert on the pinger the same 
 | `pinger_adhoc_ping_total` | Counter | `result` | On-demand pings via the `/ping` endpoints; `result` is `ok`, `down`, `invalid_target`, or `error` |
 | `pinger_loki_send_failures_total` | Counter | — | Failed sends to the Loki transport |
 | `pinger_loki_flush_timeouts_total` | Counter | — | Bounded log flushes that timed out before Loki acknowledged |
+| `pinger_loki_dropped_entries_total` | Counter | — | Log entries dropped from the Loki pending batch because it exceeded its FIFO cap (the oldest entries are discarded when the in-memory batch is full, which happens while a Loki outage keeps requeuing failed sends) |
 
 The endpoint also serves the standard prom-client `node_*` and `process_*` runtime metrics (uptime, heap, event-loop lag, GC, …).
 

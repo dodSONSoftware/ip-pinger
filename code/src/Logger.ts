@@ -61,9 +61,25 @@ function entryTimestampMs(entry: { ts?: number; timestamp?: { seconds: number; n
     return 0;
 }
 
+// The plain LokiTransport's constructor parameter type (the option interface
+// is not exported by winston-loki, so it is recovered from the constructor).
+type LokiTransportOptions = ConstructorParameters<typeof LokiTransport>[0];
+
 // Exported (with its cap constant) so the FIFO trim is directly testable
 // without spinning up a full Logger and Loki server.
 export class BoundedLokiTransport extends LokiTransport {
+    // Invoked with the number of entries dropped by the trim that just ran,
+    // only when at least one was dropped. The Logger wires this to
+    // pinger_loki_dropped_entries_total so the drops are observable in
+    // /metrics. Optional: a test that constructs the transport directly can
+    // omit it.
+    private readonly onDrop?: (dropped: number) => void;
+
+    constructor(options: LokiTransportOptions & { onDrop?: (dropped: number) => void }) {
+        super(options);
+        this.onDrop = options.onDrop;
+    }
+
     // winston-loki's log() pushes the entry into the batch synchronously
     // (batching is on), so trimming immediately after super.log() sees the
     // new entry and caps the batch to the newest MAX_PENDING_LOKI_ENTRIES.
@@ -96,6 +112,7 @@ export class BoundedLokiTransport extends LokiTransport {
             total += stream.entries.length;
         }
         let excess = total - MAX_PENDING_LOKI_ENTRIES;
+        let dropped = 0;
         while (excess > 0) {
             let oldest = -1;
             let oldestTs = Infinity;
@@ -115,6 +132,10 @@ export class BoundedLokiTransport extends LokiTransport {
             }
             streams[oldest].entries.shift();
             excess--;
+            dropped++;
+        }
+        if (dropped > 0) {
+            this.onDrop?.(dropped);
         }
     }
 }
@@ -145,6 +166,10 @@ export class Logger implements ILogger {
         this.lokiFlushTimeoutsTotal = new Counter({
             name: `pinger_loki_flush_timeouts_total`,
             help: "Bounded flush() calls that timed out before Loki acknowledged the queued entries.",
+        });
+        this.lokiDroppedEntriesTotal = new Counter({
+            name: `pinger_loki_dropped_entries_total`,
+            help: "Log entries dropped from the Loki pending batch because it exceeded the FIFO cap (oldest entries discarded when full).",
         });
 
         // Build Winston logger with configured transports
@@ -184,6 +209,12 @@ export class Logger implements ILogger {
                     // batch), so without this hook an outage is invisible
                     onConnectionError: (error: unknown): void => {
                         this.onLokiConnectionError(error);
+                    },
+                    // Surface FIFO drops in /metrics: the trim reports how
+                    // many entries it discarded so a long outage's silent
+                    // loss of the oldest logs is observable.
+                    onDrop: (dropped: number): void => {
+                        this.lokiDroppedEntriesTotal.inc(dropped);
                     },
                     format: winston.format.combine(
                         winston.format.timestamp(),
@@ -226,6 +257,7 @@ export class Logger implements ILogger {
     private readonly winston: winston.Logger;
     private readonly lokiSendFailuresTotal: Counter;
     private readonly lokiFlushTimeoutsTotal: Counter;
+    private readonly lokiDroppedEntriesTotal: Counter;
     // Rate-limiter state for the Loki connection-failure warn (see
     // onLokiConnectionError): total failed sends since construction,
     // the total at the last warn, and the last warn's timestamp.

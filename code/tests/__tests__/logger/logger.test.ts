@@ -35,6 +35,41 @@ describe("Logger (Loki transport metrics)", () => {
         const output = await register.metrics();
         expect(output).toMatch(/^pinger_loki_send_failures_total 0$/m);
         expect(output).toMatch(/^pinger_loki_flush_timeouts_total 0$/m);
+        expect(output).toMatch(/^pinger_loki_dropped_entries_total 0$/m);
+    });
+
+    it("counts entries dropped by the FIFO cap in pinger_loki_dropped_entries_total", async () => {
+        // A real (bounded) transport against a dead Loki: filling the batch
+        // past the cap drops the oldest entries, and the Logger's onDrop hook
+        // must count every one of them.
+        const logger = new Logger(makeConfig({ lokiEnabled: true, lokiUrl: "http://127.0.0.1:9" }));
+        const transports = (logger as unknown as { winston: { transports: Array<Record<string, unknown>> } }).winston.transports;
+        const transport = transports[transports.length - 1] as unknown as BoundedLokiTransport & {
+            batcher: {
+                batch: { streams: Array<{ entries: unknown[] }> };
+                close: () => Promise<void>;
+            };
+        };
+        const batcher = transport.batcher;
+
+        try {
+            const total = MAX_PENDING_LOKI_ENTRIES + 5;
+            for (let i = 0; i < total; i++) {
+                transport.log({
+                    message: `drop-${i}`,
+                    [Symbol.for("level")]: "info",
+                } as unknown as TransformableInfo, () => undefined);
+            }
+
+            const output = await register.metrics();
+            expect(output).toMatch(/^pinger_loki_dropped_entries_total 5$/m);
+        } finally {
+            // Drop the batch and stop the batch loop (a live loop would hold
+            // the jest worker open); close()'s final send is then a no-op
+            batcher.batch.streams = [];
+            await new Promise((resolve) => { setImmediate(resolve); });
+            await batcher.close();
+        }
     });
 
     it("counts every failed Loki send, not just the sends that produce a warn", async () => {

@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.17] — Quartz Fox (2026-10-15)
+
+- New metric `pinger_loki_dropped_entries_total` (Counter): counts log entries the `BoundedLokiTransport` discards when the Loki pending batch exceeds its FIFO cap (`MAX_PENDING_LOKI_ENTRIES`, 10 000). The trim reports each discard to the Logger, which increments the counter, so the silent loss of the oldest queued logs during a prolonged Loki outage is now observable in `/metrics` and alertable — previously the cap (1.16.14) bounded memory but gave no signal that entries were being dropped. Pinned by a regression test in `logger/logger.test.ts`; documented in the README metrics table and in `docs/KNOWN_ISSUES.md` (KI-012) and `docs/DECISIONS.md` (D-011)
+
 ## [1.16.16] — Quartz Fox (2026-10-15)
 
 - The aggregate device gauges (`pinger_devices_up` / `pinger_devices_down`) now keep their last real values when a ping cycle observes no devices at all — the all-pings-cancelled case when a `close()` lands mid-cycle. Previously that cycle published 0/0, which read as "no devices up AND no devices down" even though the devices still exist. The gauges are updated only when the cycle produced at least one up or down observation. Pinned by a regression test in `pinger/pinger.test.ts`
