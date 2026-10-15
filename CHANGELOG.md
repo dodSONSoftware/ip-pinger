@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.16] — Quartz Fox (2026-10-15)
+
+- The aggregate device gauges (`pinger_devices_up` / `pinger_devices_down`) now keep their last real values when a ping cycle observes no devices at all — the all-pings-cancelled case when a `close()` lands mid-cycle. Previously that cycle published 0/0, which read as "no devices up AND no devices down" even though the devices still exist. The gauges are updated only when the cycle produced at least one up or down observation. Pinned by a regression test in `pinger/pinger.test.ts`
+
 ## [1.16.15] — Quartz Fox (2026-10-15)
 
 - The net-ping session identifier (derived from the pid) is now always non-zero: `process.pid % 65535` is 0 when the pid is a multiple of 65535, and that case is normalized to 1. The fallback is 1 rather than 65535 because net-ping re-applies its own `% 65535` to the identifier, which would fold 65535 back to 0. Pinned by a regression test in `pinger/pinger.test.ts`

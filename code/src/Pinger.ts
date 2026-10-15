@@ -717,12 +717,19 @@ export class Pinger implements dli.IPinger {
                 }
             }
 
-            // Update aggregate device counts
-            if (this.prometheus_Pinger_Devices_Up_Gauge) {
-                this.prometheus_Pinger_Devices_Up_Gauge.set(upCount);
-            }
-            if (this.prometheus_Pinger_Devices_Down_Gauge) {
-                this.prometheus_Pinger_Devices_Down_Gauge.set(downCount);
+            // Update aggregate device counts. Skip when this cycle observed
+            // no devices at all (upCount + downCount === 0): that is the
+            // all-pings-cancelled case (a close() mid-cycle), and publishing
+            // 0/0 would read as "no devices up AND no devices down" even
+            // though the devices still exist. The gauges keep their last real
+            // values instead.
+            if (upCount + downCount > 0) {
+                if (this.prometheus_Pinger_Devices_Up_Gauge) {
+                    this.prometheus_Pinger_Devices_Up_Gauge.set(upCount);
+                }
+                if (this.prometheus_Pinger_Devices_Down_Gauge) {
+                    this.prometheus_Pinger_Devices_Down_Gauge.set(downCount);
+                }
             }
 
             // Record cycle duration (ensure integer milliseconds)

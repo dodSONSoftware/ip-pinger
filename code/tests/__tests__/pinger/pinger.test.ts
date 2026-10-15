@@ -211,6 +211,49 @@ describe("Pinger.close() (in-flight ping cancellation at shutdown)", () => {
         // No misleading ping-error log was emitted for the cancellations
         expect(write_error).not.toHaveBeenCalled();
     }, 15000);
+
+    it("keeps the aggregate up/down gauges at their last values when a cycle's pings are all cancelled", async () => {
+        const pinger = new Pinger(makeConfig([deviceA, deviceB], { intervalSecs: 5 }), "initial config", new NoOpLogger(), new Date(), 0);
+        pingers.push(pinger);
+        await pinger.start();
+
+        // Prior history: both devices were up, so the aggregate gauges read
+        // 2 up / 0 down
+        const gauges = (pinger as unknown as {
+            prometheus_Pinger_Devices_Up_Gauge: Gauge;
+            prometheus_Pinger_Devices_Down_Gauge: Gauge;
+        });
+        gauges.prometheus_Pinger_Devices_Up_Gauge.set(2);
+        gauges.prometheus_Pinger_Devices_Down_Gauge.set(0);
+
+        // Hold every ping in flight so close() finds them outstanding, and
+        // mirror net-ping 1.2.4: closing the session flushes them with a
+        // plain error (an application-level cancellation, not a failure)
+        const netPing = jest.requireMock("net-ping") as { createSession: { mock: { results: Array<{ value: { pingHost: jest.Mock; close: jest.Mock } }> } } };
+        const session = netPing.createSession.mock.results.at(-1)!.value;
+        const pending: Array<(error: Error | null, target: string, sent: Date, received: Date) => void> = [];
+        session.pingHost.mockImplementation((_host: string, callback: (error: Error | null, target: string, sent: Date, received: Date) => void) => {
+            pending.push(callback);
+        });
+        session.close.mockImplementation(() => {
+            for (const callback of pending) {
+                callback(new Error("Socket forcibly closed"), "", new Date(), new Date());
+            }
+        });
+
+        const runPromise = pinger.run();
+        await waitFor(() => pending.length === 2);
+
+        await pinger.close();
+        await runPromise; // the cycle must settle with the cancelled results
+
+        const output = await register.metrics();
+        // The all-cancelled cycle observed no devices (upCount + downCount
+        // === 0), so the aggregate gauges keep their last real values (2 up /
+        // 0 down) instead of being reset to a misleading 0/0
+        expect(output).toMatch(/^pinger_devices_up 2$/m);
+        expect(output).toMatch(/^pinger_devices_down 0$/m);
+    }, 15000);
 });
 
 describe("Pinger lifecycle (run-loop wake semantics)", () => {
