@@ -6,6 +6,7 @@
 import winston from "winston";
 import type Transport from "winston-transport";
 import LokiTransport from "winston-loki";
+import type { TransformableInfo } from "logform";
 import { Counter } from "prom-client";
 import type { IConfig, ILogger } from "./interfaces";
 import { LogLevel } from "./interfaces";
@@ -27,6 +28,96 @@ const LOG_LEVEL_MAP: Record<LogLevel, string> = {
     [LogLevel.Info]: "info",
     [LogLevel.Debug]: "debug",
 };
+
+// Max log entries winston-loki may hold unsent in memory. Its Batcher keeps
+// the whole pending batch resident and requeues it in full after every failed
+// send (clearOnError defaults to false), so during a prolonged Loki outage the
+// batch loop keeps retrying (one attempt per minute once its circuit breaker
+// trips) and each failure requeues an ever-larger batch — the in-memory
+// footprint grows without bound for the lifetime of the outage. The library
+// exposes no cap and its `timeout` option is inert (never wired to the
+// underlying request), so nothing upstream stops the growth. BoundedLoki
+// transport adds the cap: after each write it trims the pending batch to the
+// newest MAX_PENDING_LOKI_ENTRIES entries, dropping the oldest, so a long
+// outage keeps a bounded, recent tail of logs (and on recovery the last set of
+// logs is what gets delivered) instead of an ever-growing backlog.
+export const MAX_PENDING_LOKI_ENTRIES = 10000;
+
+// A pending entry's timestamp, as a comparable millisecond value, whatever
+// wire format winston-loki is using. With the protobuf transport (the
+// default when snappy is available) pushLogEntry rewrites each entry to
+// { timestamp: { seconds, nanos }, line }; with the JSON fallback it keeps
+// { ts, line, rest }. The FIFO drop below needs one comparable value either
+// way.
+function entryTimestampMs(entry: { ts?: number; timestamp?: { seconds: number; nanos?: number } }): number {
+    if (typeof entry.ts === "number") {
+        return entry.ts;
+    }
+    const t = entry.timestamp;
+    if (t && typeof t.seconds === "number") {
+        return t.seconds * 1000 + Math.floor((t.nanos ?? 0) / 1e6);
+    }
+    // No timestamp at all: treat as oldest so it is dropped first.
+    return 0;
+}
+
+// Exported (with its cap constant) so the FIFO trim is directly testable
+// without spinning up a full Logger and Loki server.
+export class BoundedLokiTransport extends LokiTransport {
+    // winston-loki's log() pushes the entry into the batch synchronously
+    // (batching is on), so trimming immediately after super.log() sees the
+    // new entry and caps the batch to the newest MAX_PENDING_LOKI_ENTRIES.
+    log(info: TransformableInfo, callback: () => void): void {
+        // The base log() is optional in winston-loki's type declaration but
+        // always present at runtime; optional-call keeps the type checker
+        // happy. It pushes the entry into the batch synchronously, so the
+        // trim below sees the new entry and caps the batch.
+        super.log?.(info, callback);
+        this.trimPendingBatch();
+    }
+
+    // Drop the oldest pending entries until the batch holds at most
+    // MAX_PENDING_LOKI_ENTRIES. The batch is an array of streams (one per
+    // distinct label set; here, effectively one per log level, since the
+    // static labels are fixed and only the per-entry level varies). Entries
+    // within a stream are chronological, oldest first — new entries are
+    // appended and failed sends requeue their snapshot at the front — so each
+    // stream's front is its oldest. Drop from the front of the stream whose
+    // front is oldest first, i.e. a FIFO that discards the globally oldest.
+    private trimPendingBatch(): void {
+        const streams = (this as unknown as {
+            batcher?: { batch?: { streams: Array<{ entries: Array<{ ts?: number; timestamp?: { seconds: number; nanos?: number } }> }> } };
+        }).batcher?.batch?.streams;
+        if (!streams) {
+            return;
+        }
+        let total = 0;
+        for (const stream of streams) {
+            total += stream.entries.length;
+        }
+        let excess = total - MAX_PENDING_LOKI_ENTRIES;
+        while (excess > 0) {
+            let oldest = -1;
+            let oldestTs = Infinity;
+            for (let i = 0; i < streams.length; i++) {
+                const front = streams[i].entries[0];
+                if (!front) {
+                    continue;
+                }
+                const ts = entryTimestampMs(front);
+                if (ts < oldestTs) {
+                    oldestTs = ts;
+                    oldest = i;
+                }
+            }
+            if (oldest === -1) {
+                break;
+            }
+            streams[oldest].entries.shift();
+            excess--;
+        }
+    }
+}
 
 /**
  * Structured logger backed by Winston with optional Loki remote transport.
@@ -79,8 +170,13 @@ export class Logger implements ILogger {
             // Raising it reduces the Loki write rate (entries below the
             // level never reach any transport); errors always pass at any
             // valid configured level.
+            //
+            // BoundedLokiTransport (not the plain LokiTransport) caps the
+            // pending in-memory batch to the newest MAX_PENDING_LOKI_ENTRIES
+            // entries, so a prolonged Loki outage cannot grow it without
+            // bound (see the class doc).
             transports.push(
-                new LokiTransport({
+                new BoundedLokiTransport({
                     host: lokiCfg.url,
                     labels: { app: "ip-pinger", env: "production" },
                     // The library stays silent on connection errors (its

@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.14] — Quartz Fox (2026-10-15)
+
+- Bounded the Loki transport's in-memory pending batch (KI-012): winston-loki keeps the whole unsent batch resident and requeues it in full after every failed send (and its `timeout` option is inert), so a prolonged Loki outage let the batch — and the service's RSS — grow without bound. The logger now installs a `BoundedLokiTransport` (a `winston-loki` subclass) that trims the pending batch to the newest 10 000 entries after every write, dropping the globally oldest first across the per-level label streams, so a long outage holds a bounded, recent tail of logs and the entries that survive to recovery are the most recent ones. Pinned by regression tests in `logger/logger.test.ts`
+
 ## [1.16.13] — Quartz Fox (2026-10-15)
 
 - Documented the exit flush's failed-send semantics (KI-011): winston-loki's `flush()` resolves when the batch send *attempt* completes, success or failure — a fast-refused send requeues its entries, the flush still resolves, and those entries are then lost at `process.exit`, without firing the flush-timeout warn or counter; the residual shutdown-tail loss while Loki is down is observable via `pinger_loki_send_failures_total`, and the console record (docker logs) remains complete. No behavior change; the `Logger.flush()` doc comment (1.16.12) already states this guarantee, and KNOWN_ISSUES/DECISIONS now carry the operational consequence

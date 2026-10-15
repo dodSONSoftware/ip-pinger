@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { Logger } from "../../../src/Logger";
+import { Logger, BoundedLokiTransport, MAX_PENDING_LOKI_ENTRIES } from "../../../src/Logger";
+import type { TransformableInfo } from "logform";
 import { register } from "prom-client";
 import type { IConfig } from "../../../src/interfaces";
 import http from "http";
@@ -138,5 +139,105 @@ describe("Logger (Loki transport metrics)", () => {
 
         const output = await register.metrics();
         expect(output).toMatch(/^pinger_loki_flush_timeouts_total 0$/m);
+    });
+});
+
+describe("BoundedLokiTransport (FIFO pending-batch cap)", () => {
+    // The transport is driven directly (not through a full Logger) so the
+    // cap can be exercised at its production value without a live Loki
+    // server. All entries share one label set, so they land in a single
+    // stream and the FIFO drop is unambiguous.
+    it("caps the pending batch to the newest MAX entries, dropping the oldest", async () => {
+        const transport = new BoundedLokiTransport({
+            host: "http://127.0.0.1:9",
+            labels: { app: "bounded-test" },
+            // No exit-hook registration in a unit test
+            gracefulShutdown: false,
+        });
+        const batcher = (transport as unknown as {
+            batcher: {
+                batch: { streams: Array<{ entries: Array<{ line: string }> }> };
+                close: () => Promise<void>;
+            };
+        }).batcher;
+
+        try {
+            const total = MAX_PENDING_LOKI_ENTRIES + 5;
+            for (let i = 0; i < total; i++) {
+                // Only the winston level symbol, no plain `level` key: a plain
+                // key would land in winston-loki's rest object and change the
+                // line format. Cast because TransformableInfo requires the
+                // plain key but the transport reads only the symbol.
+                transport.log({
+                    message: `line-${i}`,
+                    [Symbol.for("level")]: "info",
+                } as unknown as TransformableInfo, () => undefined);
+            }
+
+            const lines = batcher.batch.streams.flatMap((s) => s.entries.map((e) => e.line));
+            // The batch is capped at MAX entries, never above it
+            expect(lines).toHaveLength(MAX_PENDING_LOKI_ENTRIES);
+            // The newest entry survived (the winston-loki line format is
+            // "<message> <rest>" with empty rest, hence the trailing space)
+            expect(lines[lines.length - 1]).toBe(`line-${total - 1} `);
+            // The oldest 5 (line-0..line-4) were dropped; the first survivor
+            // is line-5 — a true FIFO that keeps the most recent logs
+            expect(lines[0]).toBe(`line-5 `);
+            expect(lines.some((l) => l === "line-0 ")).toBe(false);
+        } finally {
+            // Always stop the batch loop: a live loop (and its pending 5 s
+            // timer) would hold the jest worker open even if an assertion
+            // above fails. Drop the batch first so close()'s final send is a
+            // no-op rather than a 10 000-entry encode + refused POST.
+            batcher.batch.streams = [];
+            // Let the loop's first iteration reach its wait() before close():
+            // closing in the same tick as construction races ahead of that
+            // wait(), so close() would sleep out the full 5 s batch interval.
+            // (A production flush() runs at exit, long after construction, so
+            // it is never affected by this race.)
+            await new Promise((resolve) => { setImmediate(resolve); });
+            await batcher.close();
+        }
+    });
+
+    // Different log levels produce different label sets, so they land in
+    // separate streams. The cap is on the TOTAL entry count across all
+    // streams, not per stream.
+    it("caps the total pending entries across multiple label streams", async () => {
+        const transport = new BoundedLokiTransport({
+            host: "http://127.0.0.1:9",
+            labels: { app: "multi" },
+            gracefulShutdown: false,
+        });
+        const batcher = (transport as unknown as {
+            batcher: {
+                batch: { streams: Array<{ entries: unknown[] }> };
+                close: () => Promise<void>;
+            };
+        }).batcher;
+
+        try {
+            const total = MAX_PENDING_LOKI_ENTRIES + 4;
+            for (let i = 0; i < total; i++) {
+                const level = i % 2 === 0 ? "info" : "error";
+                transport.log({
+                    message: `m-${i}`,
+                    [Symbol.for("level")]: level,
+                } as unknown as TransformableInfo, () => undefined);
+            }
+
+            // Two streams (info and error), but the batch is capped at MAX
+            // entries in total
+            expect(batcher.batch.streams.length).toBe(2);
+            let count = 0;
+            for (const s of batcher.batch.streams) {
+                count += s.entries.length;
+            }
+            expect(count).toBe(MAX_PENDING_LOKI_ENTRIES);
+        } finally {
+            batcher.batch.streams = [];
+            await new Promise((resolve) => { setImmediate(resolve); });
+            await batcher.close();
+        }
     });
 });
