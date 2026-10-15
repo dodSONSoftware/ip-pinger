@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.15] — Quartz Fox (2026-10-15)
+
+- The net-ping session identifier (derived from the pid) is now always non-zero: `process.pid % 65535` is 0 when the pid is a multiple of 65535, and that case is normalized to 1. The fallback is 1 rather than 65535 because net-ping re-applies its own `% 65535` to the identifier, which would fold 65535 back to 0. Pinned by a regression test in `pinger/pinger.test.ts`
+
 ## [1.16.14] — Quartz Fox (2026-10-15)
 
 - Bounded the Loki transport's in-memory pending batch (KI-012): winston-loki keeps the whole unsent batch resident and requeues it in full after every failed send (and its `timeout` option is inert), so a prolonged Loki outage let the batch — and the service's RSS — grow without bound. The logger now installs a `BoundedLokiTransport` (a `winston-loki` subclass) that trims the pending batch to the newest 10 000 entries after every write, dropping the globally oldest first across the per-level label streams, so a long outage holds a bounded, recent tail of logs and the entries that survive to recovery are the most recent ones. Pinned by regression tests in `logger/logger.test.ts`

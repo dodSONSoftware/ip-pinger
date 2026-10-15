@@ -1190,3 +1190,41 @@ describe("Pinger route registration (error middleware ordering)", () => {
         expect(errorIdx).toBe(stack.length - 1);
     });
 });
+
+describe("net-ping session options (session identifier)", () => {
+    // The session identifier is created in the Pinger constructor, so these
+    // tests construct without start() (no HTTP server) and read the options
+    // the constructor handed to net-ping's createSession.
+    function sessionOptions(): Record<string, unknown> {
+        const netPing = jest.requireMock("net-ping") as {
+            createSession: { mock: { calls: Array<Array<Record<string, unknown>>> } };
+        };
+        return netPing.createSession.mock.calls.at(-1)![0];
+    }
+
+    it("passes a non-zero session identifier within the ICMP identifier range", () => {
+        const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date(), 0);
+        pingers.push(pinger);
+
+        const sessionId = sessionOptions().sessionId as number;
+        expect(Number.isInteger(sessionId)).toBe(true);
+        expect(sessionId).toBeGreaterThanOrEqual(1);
+        expect(sessionId).toBeLessThanOrEqual(65534);
+    });
+
+    it("falls back to identifier 1 when process.pid is a multiple of 65535", () => {
+        // A pid that is a multiple of 65535 makes "pid % 65535" zero; the
+        // guard normalizes that to 1 (not 65535, which net-ping's own
+        // "% 65535" would fold back to 0).
+        const originalPid = process.pid;
+        try {
+            Object.defineProperty(process, "pid", { value: 65535, configurable: true });
+            const pinger = new Pinger(makeConfig([deviceA]), "initial config", new NoOpLogger(), new Date(), 0);
+            pingers.push(pinger);
+
+            expect(sessionOptions().sessionId).toBe(1);
+        } finally {
+            Object.defineProperty(process, "pid", { value: originalPid, configurable: true });
+        }
+    });
+});

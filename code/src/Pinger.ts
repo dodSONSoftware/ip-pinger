@@ -266,7 +266,14 @@ export class Pinger implements dli.IPinger {
             networkProtocol: netPing.NetworkProtocol.IPv4,
             packetSize: 16,
             retries: 1,
-            sessionId: process.pid % 65535,
+            // The ICMP session identifier, derived from the pid so replies
+            // are matched to this process. process.pid % 65535 is 0 when the
+            // pid is a multiple of 65535; normalize that to 1 so the
+            // identifier is always non-zero. The fallback must survive
+            // net-ping's own "% 65535" (it re-applies the modulo to whatever
+            // we pass), so it must not be a multiple of 65535 — 1 does, 65535
+            // would fold back to 0.
+            sessionId: (process.pid % 65535) || 1,
             timeout: 2000,
             ttl: 128,
         };
