@@ -2,7 +2,7 @@
 
 Audit date: 2026-10-14. Severity scale: P0 = data loss / service down, P1 = major functional failure, P2 = significant functional or security issue, P3 = minor / cosmetic / hardening.
 
-**No P0–P2 defects were found.** All 193 automated tests and 15 live read-only probes passed. The items below are P3 findings — four confirmed by direct evidence, two of which reconfirm already-documented known limitations. D-001, D-003, and D-005 were fixed on 2026-10-14 (see their resolution notes); the only open finding is D-004, a documented design limitation mitigated at the network layer.
+**No P0–P2 defects were found.** All 193 automated tests and 15 live read-only probes passed. The items below are P3 findings — four confirmed by direct evidence, two of which reconfirm already-documented known limitations. D-001, D-003, and D-005 were fixed on 2026-10-14 and D-002 on 2026-10-15 (see their resolution notes); the only open finding is D-004, a documented design limitation mitigated at the network layer.
 
 ## Confirmed findings
 
@@ -13,11 +13,12 @@ Audit date: 2026-10-14. Severity scale: P0 = data loss / service down, P1 = majo
 - **Impact:** low. Clients got a correct non-2xx; only the body format (HTML vs JSON) was inconsistent with the rest of the API.
 - **Resolution:** option (a) — a terminal middleware registered after all routes and before the error handler now answers unknown paths as 404 JSON and verb-mismatched registered paths as 405 JSON with an `Allow` header (`GET, HEAD` for GET routes, `POST` for `/write-config`). Path templates are matched against the same `endpointsInfo` catalog that serves `/endpoints` and `/about`, mirroring the router's own matching (no query string, one trailing slash lenient, `:param` = any single segment), so the surface cannot drift from the listing. Verified by 7 route-level cases plus a real-Pinger stack test. Take effect requires the next deployment.
 
-### D-002 — `/write-config` can persist the file and still answer 500 (partial apply window) (P3, confirmed in test)
+### D-002 — `/write-config` can persist the file and still answer 500 (partial apply window) (P3, confirmed in test — **fixed 2026-10-15**)
 
 - **Reproduction (isolated, fault-injected — TC-WC-07):** validate → file write succeeds → the re-read inside `loadConfig()` fails (e.g., transient I/O error on `CONFIG_PATH`). Response: `500`, `success:false`, pinger **not** updated — but the file on disk **is** the new configuration.
 - **Impact:** low and self-healing. Window is milliseconds (one `readFileSync` after the rename). File and runtime state disagree until the next `/reload-config` or restart; recovery was verified working in the same test. No corruption: the atomic rename guarantees the file holds a complete document either way.
 - **Recommended correction:** in the `doWriteConfig` catch branch, note in the message that the payload may already be persisted and that `/reload-config` reconciles (or attempt one re-read retry before answering 500). Optional; the current behavior is predictable.
+- **Resolution:** the `doWriteConfig` catch branch now states in the 500 message that the new configuration may already be persisted to the file even though the request failed, that the running service was not updated, and that `GET /reload-config` reconciles the service with the file on disk. The status code, the `pinger_config_reload_total{result="rejected"}` recording, the persisted-file state, and the `/reload-config` recovery are unchanged; the updated TC-WC-07 asserts the new message text.
 
 ### D-003 — `X-Powered-By: Express` framework fingerprint (P3, confirmed — **fixed 2026-10-14**)
 

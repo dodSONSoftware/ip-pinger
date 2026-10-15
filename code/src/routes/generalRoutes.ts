@@ -645,12 +645,19 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
             // throw in dump/write/re-read) — answer 500 so client-error
             // monitoring does not absorb a server failure, and log it to
             // console + Loki before answering.
+            //
+            // Note the partial-apply window (D-002): the file write happens
+            // before the re-read, so a throw in the re-read (or apply) means
+            // the new configuration may already be persisted even though this
+            // request fails and the running pinger is left unchanged. Say so
+            // in the message — the file and runtime state disagree until a
+            // /reload-config (or restart) reconciles them.
             const err = ensureError(error);
             recordConfigReload("rejected");
             log_writer.write_error("generalRoutes.write-config", `Unexpected error processing configuration payload: ${err.name}: ${err.message}`);
             res.status(InternalServerError).json({
                 success: false,
-                message: `ERROR: Internal error while processing the configuration payload: ${err.message}`
+                message: `ERROR: Internal error while processing the configuration payload: ${err.message}. The new configuration may already be persisted to the file even though this request failed, and the running service was not updated by it — use GET /reload-config to reconcile the service with the file on disk.`
             });
         }
     }

@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.18] — Quartz Fox (2026-10-15)
+
+- The `/write-config` 500 response (the `doWriteConfig` catch branch — e.g. the post-write re-read fails) now states that the new configuration may already be persisted to the file even though the request failed, that the running service was not updated by it, and that `GET /reload-config` reconciles the service with the file on disk — closing the API audit's D-002 partial-apply window finding so the response itself points at the recovery path. The status code, `pinger_config_reload_total{result="rejected"}` recording, file state, and `/reload-config` recovery are unchanged; the fault-injected TC-WC-07 test now asserts the message text
+
 ## [1.16.17] — Quartz Fox (2026-10-15)
 
 - New metric `pinger_loki_dropped_entries_total` (Counter): counts log entries the `BoundedLokiTransport` discards when the Loki pending batch exceeds its FIFO cap (`MAX_PENDING_LOKI_ENTRIES`, 10 000). The trim reports each discard to the Logger, which increments the counter, so the silent loss of the oldest queued logs during a prolonged Loki outage is now observable in `/metrics` and alertable — previously the cap (1.16.14) bounded memory but gave no signal that entries were being dropped. Pinned by a regression test in `logger/logger.test.ts`; documented in the README metrics table and in `docs/KNOWN_ISSUES.md` (KI-012) and `docs/DECISIONS.md` (D-011)

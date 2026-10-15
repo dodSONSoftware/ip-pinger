@@ -460,6 +460,11 @@ describe("/write-config (persistence and failure paths)", () => {
             expect(status).toBe(500);
             expect(body.success).toBe(false);
             expect(String(body.message)).toContain("Internal error");
+            // D-002: the file was written before the re-read failed, so the
+            // message must warn that the payload may already be persisted and
+            // point at /reload-config as the reconciliation path
+            expect(String(body.message)).toContain("may already be persisted");
+            expect(String(body.message)).toContain("/reload-config");
             expect(recordConfigReload).toHaveBeenCalledWith("rejected");
             expect(updateConfig).not.toHaveBeenCalled();
             // The write landed on disk before the re-read failed
