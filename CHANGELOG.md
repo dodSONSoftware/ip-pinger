@@ -3,6 +3,10 @@
 All notable changes to the IP Pinger Services are documented in this file.
 Versions are listed newest first.
 
+## [1.16.13] — Quartz Fox (2026-10-15)
+
+- Documented the exit flush's failed-send semantics (KI-011): winston-loki's `flush()` resolves when the batch send *attempt* completes, success or failure — a fast-refused send requeues its entries, the flush still resolves, and those entries are then lost at `process.exit`, without firing the flush-timeout warn or counter; the residual shutdown-tail loss while Loki is down is observable via `pinger_loki_send_failures_total`, and the console record (docker logs) remains complete. No behavior change; the `Logger.flush()` doc comment (1.16.12) already states this guarantee, and KNOWN_ISSUES/DECISIONS now carry the operational consequence
+
 ## [1.16.12] — Quartz Fox (2026-10-15)
 
 - The exit-path Loki flush now delivers the shutdown tail deterministically instead of waiting out the transport's 5 s batch cycle: winston-loki's own `flush()` only observes the batch loop's next *scheduled* send and never triggers one, so the bounded 3 s wait expired first whenever the next tick was more than 3 s away — about 40% of graceful restarts — and the `Received SIGTERM` / `Pinger closed.` lines were still lost from Loki even with Loki healthy, with a spurious `Loki flush timed out` warn; `Logger.flush()` now triggers the transport's immediate final send (its `close()` stops the batch loop and sends the pending batch now) before the bounded wait, which is safe because the flush is only ever called from process-exit paths; a reachable Loki acknowledges the tail in milliseconds, an unreachable one is still bounded by the 3 s timeout (KI-010 resolved)
