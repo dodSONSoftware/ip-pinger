@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Quartz Fox — version 1.16.19.
+**Release:** Onyx Fox — version 1.17.0.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -29,6 +29,7 @@ Results are exposed via Prometheus-compatible metrics at the `/metrics` endpoint
 - **Prometheus metrics**: Full metric suite including histograms for latency distribution
 - **Hot-reload configuration**: Update device lists and settings without restarting
 - **Graceful shutdown**: SIGINT/SIGTERM cleanly close the HTTP API server and net-ping session, and flushes pending log entries to Loki, before exiting
+- **Operator restart endpoint**: `POST /restart-service` requests that graceful shutdown over an authenticated HTTP call, so the container's restart policy brings the process back (disabled unless a restart secret is configured)
 - **Swagger UI**: Interactive API documentation at `/swagger`
 - **Fixed port**: API and metrics on the single fixed port 32001 (not configurable)
 
@@ -211,6 +212,39 @@ summaries also reach Loki.
 | GET | `/swagger` | Interactive API documentation |
 | GET | `/metrics` | Prometheus metrics endpoint |
 | GET | `/health` | Health check; 200 while operational, 503 after a fatal net-ping session failure |
+| POST | `/restart-service` | Request a graceful service restart (bearer-authenticated; 202 when accepted, 401 without a valid credential, 409 for a duplicate, 503 when disabled) |
+
+## Service Restart
+
+`POST /restart-service` lets an authenticated operator restart the running
+process over HTTP. An accepted request returns **202** before the service
+starts its existing graceful shutdown (stop the pinger, close the HTTP
+server, flush Loki, exit 0); in a Docker deployment the container's
+`restart: unless-stopped` policy then starts the process again. A `202`
+means *restart requested*, not *service back* — confirm with a subsequent
+`GET /health`.
+
+The endpoint is **disabled by default**: it only accepts restarts when the
+`RESTART_SERVICE_TOKEN` environment variable holds a strong secret (at
+least 32 bytes, e.g. generated with `openssl rand -hex 32`). A present but
+shorter or whitespace-only secret fails the service at startup instead of
+arming a guessable restart button. The secret is compared in constant time
+and never logged; requests without a valid
+`Authorization: Bearer <token>` header get `401`, duplicates of an
+already-accepted request get `409`, and other verbs get `405`.
+
+```bash
+curl -i -X POST http://localhost:32001/restart-service \
+  -H "Authorization: Bearer $RESTART_SERVICE_TOKEN"
+```
+
+This is a graceful process restart, not a container rebuild: it does not
+rebuild the image or apply Compose file edits — for those use
+`docker compose up -d --build` (as appropriate) under operator control.
+Bearer authentication is not a substitute for transport confidentiality:
+keep the endpoint on a trusted management network and terminate TLS at an
+authenticated reverse proxy for non-local use. The API's permissive CORS is
+unchanged; do not build browser-based cross-origin restart flows on it.
 
 ## Prometheus Metrics
 

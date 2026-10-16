@@ -4,7 +4,7 @@ Work only within this repository. Keep changes focused, prefer existing patterns
 
 ## Project
 
-Node.js 22 / TypeScript 5 Express service that monitors configured IPv4 devices by ICMP, exports Prometheus metrics and optionally logs to Loki. All code and tooling live in `code/`. Primary files: `code/src/index.ts` (bootstrap), `code/src/Pinger.ts` (probes/metrics/scheduler), `code/src/common.ts` (configuration), `code/src/routes/generalRoutes.ts` (API), `code/src/Logger.ts` (logging), and `code/src/version.ts` (release version).
+Node.js 22 / TypeScript 5 Express service that monitors configured IPv4 devices by ICMP, exports Prometheus metrics and optionally logs to Loki. All code and tooling live in `code/`. Primary files: `code/src/index.ts` (bootstrap), `code/src/Pinger.ts` (probes/metrics/scheduler), `code/src/common.ts` (configuration), `code/src/routes/generalRoutes.ts` (API), `code/src/restartService.ts` (restart token validation and bearer check), `code/src/Logger.ts` (logging), and `code/src/version.ts` (release version).
 
 ## Commands
 

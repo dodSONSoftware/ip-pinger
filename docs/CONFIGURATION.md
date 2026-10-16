@@ -6,7 +6,15 @@ This document specifies configuration settings, defaults, validation, deployment
 
 `CONFIG_PATH` is **required** and must point to a readable YAML file at startup. `code/src/common.ts` throws during import if it is unset. The HTTP port is the constant `API_PORT = 32001`, not configurable by YAML or environment. `npm run build` copies `code/src/config.yml` to `code/dist/config.yml`, but **does not set `CONFIG_PATH`**.
 
-Docker Compose sets `CONFIG_PATH=/app/config/config.yml`, publishes 32001, and bind-mounts `/mnt/ip-pinger-data/config:/app/config:rw`. The container runs as UID 1000 and needs directory write access to atomically replace the YAML file. Create the host directory and place `config.yml` there before starting; avoid a single-file bind mount because rename-based writes can fail (`EBUSY`). The image grants the Node executable `CAP_NET_RAW`; Compose also adds `NET_RAW` for ICMP.
+`RESTART_SERVICE_TOKEN` is an **optional** environment variable read once at startup by `code/src/index.ts` (it is not part of the YAML schema). It configures the bearer secret for `POST /restart-service`:
+
+- **Unset or empty** — the endpoint is disabled and answers `503` to every request; no shutdown can be scheduled through it.
+- **Set** — the value must be at least 32 bytes and not whitespace-only, or the service fails at startup (fail-fast; a weak secret must never arm a guessable restart button). Generate it with e.g. `openssl rand -hex 32`.
+- The secret is compared against the `Authorization: Bearer <token>` header in constant time (`crypto.timingSafeEqual`, equal-size buffers only), and is never logged — neither in request logs nor in the 401 warning.
+
+Docker Compose passes the variable through as `RESTART_SERVICE_TOKEN=${RESTART_SERVICE_TOKEN:-}`, so the value belongs in a protected local `.env` file (git-ignored) or the deployment environment — never in the committed Compose YAML.
+
+Docker Compose sets `CONFIG_PATH=/app/config/config.yml` (and passes through the optional `RESTART_SERVICE_TOKEN`), publishes 32001, and bind-mounts `/mnt/ip-pinger-data/config:/app/config:rw`. The container runs as UID 1000 and needs directory write access to atomically replace the YAML file. Create the host directory and place `config.yml` there before starting; avoid a single-file bind mount because rename-based writes can fail (`EBUSY`). The image grants the Node executable `CAP_NET_RAW`; Compose also adds `NET_RAW` for ICMP.
 
 ## YAML schema
 

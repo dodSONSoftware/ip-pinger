@@ -17,6 +17,7 @@ const expectedPaths = [
     "/metrics",
     "/health",
     "/endpoints",
+    "/restart-service",
 ];
 
 function specPaths(spec: { paths?: Record<string, unknown> }): string[] {
@@ -69,6 +70,30 @@ describe("Swagger route discovery", () => {
         const paths = specPaths(distSwagger.getSwaggerSpec());
         for (const expected of expectedPaths) {
             expect(paths).toContain(expected);
+        }
+    });
+
+    it("documents POST /restart-service with the bearer security scheme and the documented responses", () => {
+        // swagger-jsdoc's return type is a bare object; narrow it once
+        const spec = getSwaggerSpec() as {
+            paths?: Record<string, { get?: unknown; post?: { security?: unknown; responses?: Record<string, unknown> } }>;
+            components?: { securitySchemes?: Record<string, { type?: string; scheme?: string }> };
+        };
+
+        // The reusable scheme lives in components and the operation must
+        // reference it — Swagger UI's "Authorize" flow depends on both.
+        const schemes = spec.components?.securitySchemes;
+        expect(schemes?.BearerAuth?.type).toBe("http");
+        expect(schemes?.BearerAuth?.scheme).toBe("bearer");
+
+        const route = spec.paths?.["/restart-service"] as
+            | { get?: unknown; post?: { security?: unknown; responses?: Record<string, unknown> } }
+            | undefined;
+        expect(route).toBeDefined();
+        expect(route?.get).toBeUndefined();
+        expect(JSON.stringify(route?.post?.security)).toContain("BearerAuth");
+        for (const code of ["202", "401", "409", "503"]) {
+            expect(route?.post?.responses?.[code]).toBeDefined();
         }
     });
 

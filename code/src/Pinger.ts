@@ -12,6 +12,7 @@ import type { NextFunction } from "express";
 import express from "express";
 import { setupSwagger } from "./swagger";
 import { createRoutes } from "./routes/generalRoutes";
+import type { RestartServiceOptions } from "./restartService";
 // import = require keeps the CJS require at runtime (so jest's net-ping
 // module mock applies unchanged) while giving the whole module surface —
 // createSession, NetworkProtocol, and the error classes getErrorType
@@ -70,6 +71,11 @@ export class Pinger implements dli.IPinger {
     private config_str: string;
     private configuration: dli.IConfig;
     private readonly logger: dli.ILogger;
+    // The /restart-service capability (validated secret plus the injected
+    // shutdown hook), forwarded to createRoutes. This class only carries
+    // it — the route layer owns the HTTP side, index.ts owns the process
+    // side; nothing here touches the process or Docker.
+    private readonly restart_service?: RestartServiceOptions;
     // ----
     private readonly ip_pinger: Session;
     private readonly express: express.Application;
@@ -134,12 +140,13 @@ export class Pinger implements dli.IPinger {
     // ********
     // ******** ctor
 
-    constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger, startDate: Date, port: number = API_PORT) {
+    constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger, startDate: Date, port: number = API_PORT, restart?: RestartServiceOptions) {
         // save parameters
         this.configuration = config;
         this.config_str = config_str;
         this.logger = logger;
         this.api_port = port;
+        this.restart_service = restart;
 
         // ******** CREATE PROMETHEUS GAUGES
 
@@ -257,7 +264,7 @@ export class Pinger implements dli.IPinger {
         // handler only sees errors from layers above it — registering the
         // swagger routes after it would route their failures to Express's
         // default handler instead of the application's.
-        createRoutes(this.express, this.configuration, this.config_str, this, this.logger, startDate);
+        createRoutes(this.express, this.configuration, this.config_str, this, this.logger, startDate, this.restart_service);
 
         // ******** CREATE THE PINGER
 

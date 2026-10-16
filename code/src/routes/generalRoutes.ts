@@ -11,6 +11,8 @@ import type { ILogger, IPinger, IConfig, IDevice, ConfigReloadResult, AdhocPingR
 import { LogLevel } from "../interfaces";
 import { Logger } from "../Logger";
 import { APP_VERSION, APP_NAME } from "../version";
+import { isAuthorizedRestartBearer } from "../restartService";
+import type { RestartServiceOptions } from "../restartService";
 import { dump } from "js-yaml";
 import { register } from "prom-client";
 
@@ -20,8 +22,10 @@ import { register } from "prom-client";
 
 export const OK = 200;
 export const _400 = 400;
+export const Unauthorized = 401;
 export const _404 = 404;
 export const _405 = 405;
+export const Conflict = 409;
 export const InternalServerError = 500;
 export const ServiceUnavailable = 503;
 
@@ -156,6 +160,14 @@ export const endpointsInfo: EndpointsInfo = {
             requestBody: "None",
             responseBody: "Object containing an array of endpoint details",
             description: "Returns detailed information about each API endpoint."
+        },
+        {
+            name: "Restart Service",
+            route: "/restart-service",
+            verb: "POST",
+            requestBody: "None. Requires the 'Authorization: Bearer <token>' header carrying the configured restart secret (RESTART_SERVICE_TOKEN)",
+            responseBody: "{ success: boolean, status?: string, message: string } — 202 when accepted, 401 for a missing or invalid credential, 409 when a restart is already in progress, 503 when the endpoint is disabled",
+            description: "Requests a graceful service restart: an accepted request triggers the service's normal shutdown so the container orchestrator restarts the process. Requires a configured restart secret; disabled (503) by default."
         }
     ]
 };
@@ -210,7 +222,7 @@ interface PingResult {
 
 // ******** CREATE Routes
 
-export function createRoutes(app: express.Application, config: IConfig, config_str: string, pinger: IPinger, logger: ILogger, startDate: Date) {
+export function createRoutes(app: express.Application, config: IConfig, config_str: string, pinger: IPinger, logger: ILogger, startDate: Date, restartService?: RestartServiceOptions) {
     // **** initialize
     // Route state is owned by this invocation: each createRoutes() call —
     // and therefore each Pinger instance — carries its own configuration
@@ -221,6 +233,18 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     let configurationObj = config;
     const ip_pinger = pinger;
     const log_writer = logger;
+    // /restart-service capability (validated at startup; see
+    // restartService.ts). Both halves are optional so existing
+    // constructions stay backwards-compatible — but the route fails
+    // closed (503) unless the secret and the shutdown hook are both
+    // present, and it never calls process.exit.
+    const restart_token = restartService?.token;
+    const request_restart = restartService?.requestRestart;
+    // One-shot state for this instance: once a restart request has been
+    // accepted and acknowledged (202), no further request can schedule a
+    // second shutdown. Instance-local (not module-global) so independent
+    // route sets can never share or leak restart state.
+    let restart_scheduled = false;
     // Startup-owned settings that remain active until the process restarts.
     // Captured once at boot so reload comparisons are never skewed by later config writes.
     const startup_settings = getRestartRequiredSettings(config);
@@ -865,6 +889,128 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      */
     app.route("/endpoints").get((req: express.Request, res: express.Response) => {
         res.type(Json).status(OK).json(endpointsInfo);
+    });
+
+    /**
+     * @swagger
+     * components:
+     *   securitySchemes:
+     *     BearerAuth:
+     *       type: http
+     *       scheme: bearer
+     *       description: The configured restart secret (RESTART_SERVICE_TOKEN), sent as a Bearer authorization header.
+     * /restart-service:
+     *   post:
+     *     summary: Request a graceful service restart.
+     *     description: Authenticates with the configured restart secret and, once accepted, triggers the service's existing graceful shutdown (stop the pinger, close the HTTP server, flush Loki, exit) so the container orchestrator's restart policy brings the process back up. The 202 response means the restart was *requested*, not that the service is back — confirm readiness with a subsequent /health check. Returns 503 when no restart secret is configured (the endpoint is disabled by default), 401 for a missing or invalid credential, 409 when a restart is already in progress, and 405 (via the terminal middleware) for any other verb.
+     *     security:
+     *       - BearerAuth: []
+     *     responses:
+     *       202:
+     *         description: Restart requested; the graceful shutdown runs once this response has completed
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 status:
+     *                   type: string
+     *                   example: restart_scheduled
+     *                 message:
+     *                   type: string
+     *       401:
+     *         description: Missing or invalid bearer credential
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                 message:
+     *                   type: string
+     *       409:
+     *         description: A restart request was already accepted
+     *       503:
+     *         description: Restart endpoint disabled (no restart secret configured)
+     */
+    app.route("/restart-service").post((req: express.Request, res: express.Response) => {
+        // Operational responses must not be cached, whatever the outcome
+        res.set("Cache-Control", "no-store");
+
+        // Fail closed first: the endpoint is usable only when a validated
+        // secret AND a shutdown hook are both present. The 503 wording
+        // deliberately does not say which half is missing, so the response
+        // cannot be used to probe the deployment's configuration.
+        if (restart_token === undefined || typeof request_restart !== "function") {
+            res.status(ServiceUnavailable).json({ success: false, message: "Restart endpoint is disabled." });
+            return;
+        }
+
+        // Authenticate before anything else: a missing or invalid
+        // credential never schedules a shutdown. The header is compared in
+        // constant time (see isAuthorizedRestartBearer); the failure log
+        // records the fact of the attempt only — never the header or the
+        // token.
+        if (!isAuthorizedRestartBearer(req.get("authorization"), restart_token)) {
+            log_writer.write_warn(originator + ".restart-service", `Unauthorized restart request rejected.`);
+            res.set("WWW-Authenticate", "Bearer");
+            res.status(Unauthorized).json({ success: false, message: "Unauthorized." });
+            return;
+        }
+
+        // A restart was already accepted by this instance: the process
+        // exits (or is exiting) exactly once, never on a second request
+        if (restart_scheduled) {
+            res.status(Conflict).json({ success: false, message: "Restart already in progress." });
+            return;
+        }
+
+        // Commit synchronously, before the response leaves: the guard is
+        // set here (not in a deferred callback), so a duplicate POST in
+        // the same tick — or in any later tick before shutdown runs —
+        // sees it and receives the 409 above.
+        restart_scheduled = true;
+        log_writer.write_info(
+            originator + ".restart-service",
+            `Restart requested via API; the graceful shutdown runs once this response has completed.`
+        );
+
+        // Run the injected shutdown exactly once, and only after this
+        // response has completed. 'finish' fires once the response has
+        // been flushed; 'close' fires instead when the client goes away
+        // first — an already authenticated and acknowledged restart is
+        // honored in that case rather than left accepted-but-never-run.
+        // Whichever event fires, the guard below makes a double run
+        // impossible (both fire on a normal response, 'close' after
+        // 'finish').
+        let restart_run = false;
+        const run_restart = (): void => {
+            if (restart_run) {
+                return;
+            }
+            restart_run = true;
+            try {
+                request_restart();
+            } catch (error) {
+                // The 202 is already on the wire, so the failure is
+                // log-only here; the terminal error boundary in index.ts
+                // still owns any process-level consequence.
+                const err = ensureError(error);
+                log_writer.write_error(originator + ".restart-service", `Injected restart handler failed: ${err.name}: ${err.message}`);
+            }
+        };
+        // Registered before the response is sent, per the contract
+        res.once("finish", run_restart);
+        res.once("close", run_restart);
+
+        res.status(202).json({
+            success: true,
+            status: "restart_scheduled",
+            message: "Service restart requested.",
+        });
     });
 
     // **** Unmatched-request terminal (404 / 405)

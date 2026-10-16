@@ -8,6 +8,7 @@ import * as sysFunc from "./systemFunctions";
 import { Logger } from "./Logger";
 import { Pinger } from "./Pinger";
 import { loadConfig } from "./common";
+import { RESTART_SERVICE_TOKEN_ENV, validateRestartServiceToken } from "./restartService";
 import { read_file_json } from "./systemFunctions";
 import { APP_VERSION } from "./version";
 import { collectDefaultMetrics } from "prom-client";
@@ -70,7 +71,19 @@ async function initialize() {
     logger.write_debug(originator + ".initialize", `Starting the IP Pinger Application.`);
 
     // init pinger
-    pinger_dude = new Pinger(configuration, config_str, logger, start_date);
+    // The restart endpoint's secret is read and validated exactly once at
+    // startup: an unset RESTART_SERVICE_TOKEN leaves POST /restart-service
+    // disabled (503), and a present-but-weak one fails the boot here
+    // instead of arming a guessable restart button. The injected callback
+    // reuses the existing guarded shutdown (its shutdown_in_progress guard
+    // also dedupes a restart racing a signal): the route never signals or
+    // exits the process itself, and the container's restart policy brings
+    // the process back up.
+    const restart_token = validateRestartServiceToken(process.env[RESTART_SERVICE_TOKEN_ENV]);
+    pinger_dude = new Pinger(configuration, config_str, logger, start_date, undefined, {
+        token: restart_token,
+        requestRestart: () => void shutdown("API restart request"),
+    });
 
     // Start the HTTP API and await it: a failed bind (e.g. EADDRINUSE)
     // rejects here, propagates out of main(), and the process terminates

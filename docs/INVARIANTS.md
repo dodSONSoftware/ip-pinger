@@ -15,6 +15,7 @@ This document defines guarantees and implementation constraints that must remain
 11. **Error containment:** Async Express handlers forward failures to error middleware; the API does not leak unhandled rejected promises. Well-formed client error statuses are preserved.
 12. **Logging semantics:** Both sinks honor the startup log-level threshold; complete configuration dumps are console-only, and Loki failures cannot indefinitely stall any exit path.
 13. **Version consistency:** Keep `code/src/version.ts` (`APP_VERSION`) and `code/package.json` version aligned when making releases. Maintain `CHANGELOG.md` newest first.
+14. **Authenticated one-shot restart:** `POST /restart-service` schedules no shutdown without a valid configured bearer secret; the endpoint is disabled (503) when the secret is unset or when no shutdown hook was injected, and a present-but-weak secret fails startup rather than running. An accepted request causes at most one shutdown per process (one 202, duplicates get 409). Only `code/src/index.ts` owns process exit; no route or injected callback signals the process or talks to the Docker daemon — the container's restart policy is the only restart mechanism, and the deployment keeps its non-root runtime (no Docker socket, no added capabilities).
 
 ### Regression checks
 

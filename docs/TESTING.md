@@ -24,6 +24,7 @@ CONFIG_PATH="$PWD/dist/config.yml" npm start
 | Test file | Target |
 | --- | --- |
 | `common/loadConfig.test.ts` | YAML parsing, config validation and loading |
+| `restartService.test.ts` | `RESTART_SERVICE_TOKEN` startup validation (disabled/weak/size-in-bytes) and the constant-time bearer check (format, same-length and different-length mismatches) — isolated from the ping loop and Docker |
 | `interfaces/consoleLogger.test.ts` | Console logger |
 | `interfaces/logLevel.test.ts` | Severity levels |
 | `logger/logger.test.ts` | Console/Loki logger behaviors |
@@ -31,6 +32,7 @@ CONFIG_PATH="$PWD/dist/config.yml" npm start
 | `routes/configRoutes.test.ts` | Config routes, validation, persistence/reload responses |
 | `routes/pingRoutes.test.ts` | Ping routes and error handling |
 | `routes/apiSurface.test.ts` | Response shapes/headers, `/about`, `/endpoints`, `/metrics`, `/health`, ping parameter edge cases, validation boundaries, write/reload failure and race paths (2026-10-14 API audit) |
+| `routes/restartService.test.ts` | `POST /restart-service`: 401 surface (missing/malformed/wrong credential), disabled 503 fail-closed mode (no token / no injected hook), one-shot 202 + duplicate 409 (concurrent and sequential), shutdown runs exactly once including on a client-aborted response, throwing-handler containment (no unhandled rejection), catalog listing, and no state leakage across independent route instances — the injected callback is a mock, so the suite can never signal or exit the Jest process |
 | `swagger/swagger.test.ts` | Swagger setup |
 | `systemFunctions/ensureError.test.ts` | Error normalization |
 | `systemFunctions/fileFunctions.test.ts` | File utilities |
@@ -41,7 +43,7 @@ Paths in the table are relative to `code/tests/__tests__/`.
 
 1. **Validation:** Missing `CONFIG_PATH`, omitted required keys, invalid IPv4/type, duplicate device identity, empty list, zero/negative/fractional interval, Loki enabled without URL. Confirm both boot and API rejection paths as relevant.
 2. **Reload:** Live `devices` and `intervalSecs` changes, deferred change during active cycle, cleanup of only removed metric label series, state baseline of re-added devices, retained counters for unchanged devices.
-3. **HTTP:** `/about`, `/endpoints`, `/health`, `/metrics`, `/ping`, `/ping/:target`, `/read-config`, `/write-config`, `/reload-config`, `/swagger`; explicit `next(error)` forwarding and JSON/body parser failures.
+3. **HTTP:** `/about`, `/endpoints`, `/health`, `/metrics`, `/ping`, `/ping/:target`, `/read-config`, `/write-config`, `/reload-config`, `/restart-service` (401/405/409/503 surface, one-shot acceptance, catalog), `/swagger`; explicit `next(error)` forwarding and JSON/body parser failures.
 4. **Network and shutdown:** Success, timeout, unreachable, exception, unexpected session close, SIGINT/SIGTERM while waiting or probing. Canceled probes must not inflate error metrics; fatal session failure must mark unhealthy. The shutdown tail (last ≤5 s of entries, including `Received SIGTERM…`/`Pinger closed.`) must reach Loki on a graceful restart — verified live rather than by a local suite: the fixed port 32001 and raw-socket ICMP make a child-process test infeasible in the standard environment (the flush mechanism itself is pinned by `logger/logger.test.ts`).
 5. **Observability:** Default Node/process metrics are present once, latency sampled only on success, correct three-label device identities, error classifications, lifecycle/adhoc/config metrics, Loki failure and flush counters.
 6. **Deployment:** Build Docker image; mount writable config directory; ensure non-root process can replace YAML; verify health check on port 32001 and `NET_RAW` probing.
@@ -60,6 +62,45 @@ curl -fsS http://localhost:32001/read-config
 ```
 
 `POST /write-config` is **mutating**; test it only with a disposable config file. Verify invalid payload rejection and valid changes followed by `restartRequired` behavior. Do not perform live ping/write tests against production targets in CI without explicit approval.
+
+## Manual Docker integration test (restart endpoint)
+
+**Explicit permission required.** Perform only against a disposable/test
+instance or during an approved maintenance window — the test deliberately
+interrupts availability and changes the process identity. Never invoke it
+against a production container automatically (CI included). From the
+`code/` directory, with a properly configured **test** deployment
+(`RESTART_SERVICE_TOKEN` supplied via a protected `.env`, never committed
+or echoed):
+
+```bash
+docker compose up -d --build
+
+# Confirm the restart policy and the initial process identity
+docker inspect -f '{{.HostConfig.RestartPolicy.Name}} {{.State.Pid}} {{.RestartCount}}' ip-pinger
+curl -fsS http://localhost:32001/health
+
+# Missing credentials must not restart (restart count unchanged afterwards)
+curl -i -X POST http://localhost:32001/restart-service
+
+# Valid credentials (guard against an unset shell variable sending an empty credential)
+curl -i -X POST http://localhost:32001/restart-service \
+  -H "Authorization: Bearer ${RESTART_SERVICE_TOKEN:?RESTART_SERVICE_TOKEN is not set}"
+
+# Confirm the restart and recovery (re-check; do not assume immediate readiness)
+docker inspect -f '{{.State.Pid}} {{.RestartCount}} {{.State.Health.Status}}' ip-pinger
+docker logs --tail 100 ip-pinger
+curl -fsS http://localhost:32001/health
+```
+
+Expected: the valid request yields **202**; the shutdown log line
+(`Received API restart request, shutting down.`), `Pinger closed.`, and
+the Loki flush attempt appear in the logs; the restart count increments
+and Node gets a new host PID; `/health` returns 200 again on a
+**subsequent** check; the persisted `/app/config/config.yml` is intact and
+ICMP monitoring resumes. Distinguish this intentional restart from daemon
+restarts, deployments, or health-check failures, and verify that the
+unauthenticated request left the restart count unchanged.
 
 ## Acceptance
 

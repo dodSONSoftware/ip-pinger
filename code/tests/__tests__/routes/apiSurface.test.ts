@@ -168,7 +168,7 @@ describe("response surface (headers, shapes, and live registries)", () => {
 
         expect(status).toBe(200);
         expect(headers.get("content-type")).toContain("application/json");
-        expect(listed).toHaveLength(9);
+        expect(listed).toHaveLength(10);
         const routes = new Set(listed.map((entry) => `${entry.verb} ${entry.route}`));
         expect(routes).toEqual(new Set([
             "GET /about",
@@ -180,6 +180,7 @@ describe("response surface (headers, shapes, and live registries)", () => {
             "GET /metrics",
             "GET /health",
             "GET /endpoints",
+            "POST /restart-service",
         ]));
         for (const entry of listed) {
             expect(entry.name.length).toBeGreaterThan(0);
