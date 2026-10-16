@@ -52,11 +52,11 @@ Guiding principle: **the repository root holds only project-level meta** (licens
 | Path | Purpose |
 |---|---|
 | `Dockerfile` | Multi-stage: builder compiles TypeScript, runtime strips dev dependencies, runs as non-root `node` (uid 1000). |
-| `docker-compose.yml` | Single `ip-pinger` service: fixed port 32001, `NET_RAW` capability (ICMP), config bind-mounted at `/app/config`, optional `RESTART_SERVICE_TOKEN` env. |
+| `docker-compose.yml` | Single `ip-pinger` service: fixed port 32001, `NET_RAW` capability (ICMP), config bind-mounted at `/app/config`, optional `RESTART_SERVICE_TOKEN` and `IP_PINGER_CONFIG_TOKEN` env (both disabled when unset). |
 | `docker-refresh.sh` | Host-side refresh helper; preflights the config directory so it is owned by uid/gid 1000 (atomic `/write-config` needs it). |
 | `.dockerignore` | Keeps `node_modules`, `dist`, `coverage`, `.env*`, VCS metadata out of the build context. |
-| `.env` | Local placeholder for `docker-compose.yml` variable substitution (e.g. `RESTART_SERVICE_TOKEN`). Git-ignored; keep it out of the image and out of commits. |
-| `.env.example` | Committed template for the local `.env`: documents the Compose variables (`RESTART_SERVICE_TOKEN`) with a safe disabled default. Excluded from the image by `.dockerignore` (`.env.*`). |
+| `.env` | Local placeholder for `docker-compose.yml` variable substitution (e.g. `RESTART_SERVICE_TOKEN`, `IP_PINGER_CONFIG_TOKEN`). Git-ignored; keep it out of the image and out of commits. |
+| `.env.example` | Committed template for the local `.env`: documents the Compose variables (`RESTART_SERVICE_TOKEN`, `IP_PINGER_CONFIG_TOKEN`) with a safe disabled default. Excluded from the image by `.dockerignore` (`.env.*`). |
 
 ### Generated / ignored directories — never edit by hand
 
@@ -72,12 +72,12 @@ One concern per file, CommonJS emit, every file opens with the project's copyrig
 
 | File | Responsibility |
 |---|---|
-| `index.ts` | Composition root / bootstrap: env check, config load, token validation, Prometheus default metrics, wiring Logger + Pinger, signal handling and graceful shutdown. Excluded from coverage collection (it is the entry point, not library code). |
+| `index.ts` | Composition root / bootstrap: env check, config load, secret resolution (the shared two-state token model for `RESTART_SERVICE_TOKEN` and `IP_PINGER_CONFIG_TOKEN`), Prometheus default metrics, wiring Logger + Pinger, signal handling and graceful shutdown. Excluded from coverage collection (it is the entry point, not library code). |
 | `Pinger.ts` | Core engine: ICMP probe session (net-ping), cycle scheduling, all Prometheus metric definitions and updates, ad-hoc pings, and mounting of the HTTP surface (Express, Swagger, routes). |
 | `common.ts` | Configuration layer: `CONFIG_PATH` resolution, YAML load, Zod schema and validation, restart-required-field classification, `API_PORT` constant. **Throws at import time if `CONFIG_PATH` is unset.** |
 | `interfaces.ts` | Shared type contracts (`ILogger`, `IPinger`, `IConfig`, `IDevice`, result types) plus the runtime `LogLevel` enum and the bootstrap `ConsoleLogger` that `index.ts` uses before full config load. The seam between modules — keep runtime code here minimal. |
 | `Logger.ts` | Winston setup (console + Loki via winston-loki), log-level mapping, Loki drop counter, bounded Loki transport. |
-| `restartService.ts` | `/restart-service` support: `RESTART_SERVICE_TOKEN` startup validation and per-request bearer check (timing-safe). |
+| `restartService.ts` | Service-token support: the shared validity rule and startup `resolveServiceTokenState` for both secrets, plus the per-request constant-time bearer check for `POST /restart-service`. |
 | `swagger.ts` | Swagger/Swagger-UI wiring from `@swagger` JSDoc annotations in the route files. |
 | `systemFunctions.ts` | Small shared helpers: `ensureError`, file read/write (atomic replace), timestamp/elapsed formatting. |
 | `version.ts` | `APP_VERSION` + `APP_NAME` (release codename). **Source of truth for the version; `/about` reports it.** No trailing semicolons — release tooling matches these lines exactly. |

@@ -4,6 +4,7 @@
  */
 
 import type express from "express";
+import { timingSafeEqual } from "crypto";
 import { IPV4_SCHEMA, validateParsedConfig, getConfigPath, loadConfig, getRestartRequiredSettings, requiresRestart, RESTART_REQUIRED_FIELDS } from "../common";
 import type { RestartRequiredSettings } from "../common";
 import { ensureError, write_file } from "../systemFunctions";
@@ -117,25 +118,25 @@ export const endpointsInfo: EndpointsInfo = {
             name: "Read Config",
             route: "/read-config",
             verb: "GET",
-            requestBody: "None",
+            requestBody: "None. Requires the 'x-config-token' header carrying the configured config secret (IP_PINGER_CONFIG_TOKEN)",
             responseBody: "Current YAML configuration loaded from disk",
-            description: "Reads the current configuration."
+            description: "Reads the current configuration. Requires a valid config token; disabled (503) when no valid token is configured, 401 for a missing or invalid x-config-token."
         },
         {
             name: "Write Config",
             route: "/write-config",
             verb: "POST",
-            requestBody: "JSON object with keys: logLevel (string), intervalSecs (positive integer), devices (array of objects with source, ipAddress, deviceType), lokiUrl (string, optional), lokiEnabled (boolean, optional). The API port is fixed at 32001 and is not configurable.",
+            requestBody: "Requires the 'x-config-token' header carrying the configured config secret (IP_PINGER_CONFIG_TOKEN). JSON object with keys: logLevel (string), intervalSecs (positive integer), devices (array of objects with source, ipAddress, deviceType), lokiUrl (string, optional), lokiEnabled (boolean, optional). The API port is fixed at 32001 and is not configurable.",
             responseBody: "{ success: boolean, restartRequired: boolean, message: string }",
-            description: "Updates the configuration and reloads it. Hot-reloadable settings (intervalSecs, devices) apply immediately; logLevel, lokiUrl, and lokiEnabled require a process restart."
+            description: "Updates the configuration and reloads it. Hot-reloadable settings (intervalSecs, devices) apply immediately; logLevel, lokiUrl, and lokiEnabled require a process restart. Requires a valid config token; disabled (503) when no valid token is configured, 401 for a missing or invalid x-config-token."
         },
         {
             name: "Reload Config",
             route: "/reload-config",
             verb: "GET",
-            requestBody: "None",
+            requestBody: "None. Requires the 'x-config-token' header carrying the configured config secret (IP_PINGER_CONFIG_TOKEN)",
             responseBody: "{ success: boolean, restartRequired: boolean, message: string }",
-            description: "Reloads the configuration from disk without changing the payload. Reports whether a restart is required for startup-owned settings."
+            description: "Reloads the configuration from disk without changing the payload. Reports whether a restart is required for startup-owned settings. Requires a valid config token; disabled (503) when no valid token is configured, 401 for a missing or invalid x-config-token."
         },
         {
             name: "Metrics",
@@ -222,7 +223,7 @@ interface PingResult {
 
 // ******** CREATE Routes
 
-export function createRoutes(app: express.Application, config: IConfig, config_str: string, pinger: IPinger, logger: ILogger, startDate: Date, restartService?: RestartServiceOptions) {
+export function createRoutes(app: express.Application, config: IConfig, config_str: string, pinger: IPinger, logger: ILogger, startDate: Date, restartService?: RestartServiceOptions, configToken?: string) {
     // **** initialize
     // Route state is owned by this invocation: each createRoutes() call —
     // and therefore each Pinger instance — carries its own configuration
@@ -240,11 +241,48 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
     // present, and it never calls process.exit.
     const restart_token = restartService?.token;
     const request_restart = restartService?.requestRestart;
+    // The validated config-API secret (undefined = the config API is
+    // disabled). Validated exactly once at startup by the composition root;
+    // this closure only enforces the per-request x-config-token header. A
+    // well-formed header can never grant enablement — that comes solely from
+    // the startup token, and an invalid startup token disables (it never
+    // fails the boot).
+    const config_token = configToken;
     // One-shot state for this instance: once a restart request has been
     // accepted and acknowledged (202), no further request can schedule a
     // second shutdown. Instance-local (not module-global) so independent
     // route sets can never share or leak restart state.
     let restart_scheduled = false;
+
+    /**
+     * Enforce the shared secret protecting /read-config, /write-config, and
+     * /reload-config. Called at the top of each of those handlers, after the
+     * request verb is already matched (a wrong verb is answered 405 by the
+     * terminal middleware before the handler runs). When no valid token is
+     * configured the API is DISABLED — 503 (a disabled feature is a state,
+     * not a missing route) — and a well-formed header cannot grant
+     * enablement. Otherwise the request must carry a matching x-config-token
+     * header, compared in constant time: a length mismatch is a definitive
+     * reject that never reaches timingSafeEqual. Answers 503/401 and returns
+     * false on failure; the audit warns record the fact of the attempt only,
+     * never the token or header value.
+     */
+    function verifyConfigToken(req: express.Request, res: express.Response): boolean {
+        if (config_token === undefined) {
+            log_writer.write_warn(originator + ".config-api", `config_api_disabled: ${req.method} ${req.url} — configuration API request while the configuration API is disabled`);
+            res.status(ServiceUnavailable).json({ success: false, message: "Configuration API is disabled." });
+            return false;
+        }
+        const provided = req.get("x-config-token") ?? "";
+        const expected = Buffer.from(config_token, "utf8");
+        const actual = Buffer.from(provided, "utf8");
+        if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+            log_writer.write_warn(originator + ".config-api", `config_token_rejected: ${req.method} ${req.url} — rejected configuration API request with a missing or invalid x-config-token`);
+            res.status(Unauthorized).json({ success: false, message: "missing or invalid x-config-token" });
+            return false;
+        }
+        return true;
+    }
     // Startup-owned settings that remain active until the process restarts.
     // Captured once at boot so reload comparisons are never skewed by later config writes.
     const startup_settings = getRestartRequiredSettings(config);
@@ -458,7 +496,9 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      * /read-config:
      *   get:
      *     summary: Read the configuration file.
-     *     description: Reads the configuration file without applying it to the running service. Use /reload-config to apply it.
+     *     description: Reads the configuration file without applying it to the running service. Use /reload-config to apply it. Requires the x-config-token header; the API is disabled (503) when no valid config token is configured.
+     *     security:
+     *       - ConfigTokenAuth: []
      *     responses:
      *       200:
      *         description: The configuration file
@@ -486,8 +526,17 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                   type: string
      *                 lokiEnabled:
      *                   type: boolean
+     *       401:
+     *         description: Missing or invalid x-config-token header
+     *       503:
+     *         description: Configuration API is disabled (no valid config token configured)
      */
     app.route("/read-config").get((req: express.Request, res: express.Response) => {
+        // The config API is fail-closed: disabled (503) without a valid
+        // startup token, and otherwise gated on a matching x-config-token.
+        if (!verifyConfigToken(req, res)) {
+            return;
+        }
         try {
             // Read and validate the configuration file without touching running
             // application state. Applying disk configuration to the running
@@ -522,6 +571,9 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      * /write-config:
      *   post:
      *     summary: Write the payload to the configuration file.
+     *     description: Requires the x-config-token header; the API is disabled (503) when no valid config token is configured.
+     *     security:
+     *       - ConfigTokenAuth: []
      *     requestBody:
      *       required: true
      *       content:
@@ -563,10 +615,20 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *               }
      *       400:
      *         description: The payload failed schema validation
+     *       401:
+     *         description: Missing or invalid x-config-token header
      *       500:
      *         description: The payload validated but could not be persisted to the configuration file (server-side I/O failure), or an unexpected server-side failure occurred while processing the payload
+     *       503:
+     *         description: Configuration API is disabled (no valid config token configured)
      */
     app.route("/write-config").post((req: express.Request, res: express.Response) => {
+        // Config API gate first: disabled (503) without a valid token, or
+        // 401 for a missing/invalid x-config-token — before the payload can
+        // touch the file or the pinger.
+        if (!verifyConfigToken(req, res)) {
+            return;
+        }
         // The full validate→persist→apply sequence runs under the
         // config-sequence lock (see above), so an overlapping /write-config
         // or /reload-config cannot interleave with it; every path in
@@ -691,7 +753,9 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      * /reload-config:
      *   get:
      *     summary: Reloads the configuration from disk.
-     *     description: Reloads the configuration from disk without changing the payload. Applies the hot-reloadable settings to the running pinger and reports whether a restart is required for startup-owned settings.
+     *     description: Reloads the configuration from disk without changing the payload. Applies the hot-reloadable settings to the running pinger and reports whether a restart is required for startup-owned settings. Requires the x-config-token header; the API is disabled (503) when no valid config token is configured.
+     *     security:
+     *       - ConfigTokenAuth: []
      *     responses:
      *       200:
      *         description: Configuration reloaded successfully
@@ -708,8 +772,17 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *                   type: string
      *       400:
      *         description: Invalid configuration on disk or could not find config file
+     *       401:
+     *         description: Missing or invalid x-config-token header
+     *       503:
+     *         description: Configuration API is disabled (no valid config token configured)
      */
     app.route("/reload-config").get((req: express.Request, res: express.Response) => {
+        // Config API gate first (same as /read-config and /write-config):
+        // disabled (503) without a valid token, else 401 on a bad header.
+        if (!verifyConfigToken(req, res)) {
+            return;
+        }
         // The load→apply sequence runs under the same config-sequence lock
         // as /write-config (see above), so a reload cannot interleave with a
         // write that is mid-sequence on the shared file.
@@ -899,6 +972,11 @@ export function createRoutes(app: express.Application, config: IConfig, config_s
      *       type: http
      *       scheme: bearer
      *       description: The configured restart secret (RESTART_SERVICE_TOKEN), sent as a Bearer authorization header.
+     *     ConfigTokenAuth:
+     *       type: apiKey
+     *       in: header
+     *       name: x-config-token
+     *       description: The configured config secret (IP_PINGER_CONFIG_TOKEN), sent as the x-config-token header.
      * /restart-service:
      *   post:
      *     summary: Request a graceful service restart.

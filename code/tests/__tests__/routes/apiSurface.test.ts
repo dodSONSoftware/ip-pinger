@@ -29,6 +29,12 @@ const startupConfig: IConfig = {
     lokiEnabled: false,
 };
 
+// A valid config-API secret (at least 32 alphanumeric characters). The config
+// routes are exercised here for their validation/persistence/surface behavior,
+// so the API is enabled with this token and every config request carries it.
+const CONFIG_TOKEN = "apisurfaceconfigtoken0123456789ab";
+const configHeaders = { "x-config-token": CONFIG_TOKEN } as Record<string, string>;
+
 function yamlFor(config: IConfig, extraLines: string[] = []): string {
     const lines: string[] = [
         `logLevel: ${config.logLevel}`,
@@ -88,7 +94,7 @@ beforeAll(async () => {
     const cors = require("cors");
     app.use(cors());
     app.use(express.json());
-    createRoutes(app, startupConfig, yamlFor(startupConfig), fakePinger, new NoOpLogger(), bootDate);
+    createRoutes(app, startupConfig, yamlFor(startupConfig), fakePinger, new NoOpLogger(), bootDate, undefined, CONFIG_TOKEN);
     server = app.listen(0);
     await new Promise<void>((resolve) => server.on("listening", () => resolve()));
     const address = server.address() as { port: number };
@@ -111,7 +117,9 @@ beforeEach(() => {
 });
 
 async function get(path: string): Promise<{ status: number; body: unknown; text: string; headers: Headers }> {
-    const res = await fetch(baseUrl + path);
+    // The header is a no-op on non-config routes (they ignore it) but the
+    // config routes require it.
+    const res = await fetch(baseUrl + path, { headers: configHeaders });
     const text = await res.text();
     return { status: res.status, body: JSON.parse(text), text, headers: res.headers };
 }
@@ -119,7 +127,7 @@ async function get(path: string): Promise<{ status: number; body: unknown; text:
 async function postConfig(payload: unknown, raw?: string): Promise<{ status: number; body: Record<string, unknown>; headers: Headers }> {
     const res = await fetch(baseUrl + "/write-config", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...configHeaders },
         body: raw ?? JSON.stringify(payload),
     });
     return { status: res.status, body: (await res.json()) as Record<string, unknown>, headers: res.headers };
@@ -386,7 +394,7 @@ describe("/write-config (validation boundaries)", () => {
     it("rejects a POST with no JSON content type instead of crashing", async () => {
         const res = await fetch(baseUrl + "/write-config", {
             method: "POST",
-            headers: { "Content-Type": "text/plain" },
+            headers: { "Content-Type": "text/plain", ...configHeaders },
             body: "logLevel: info",
         });
         const body = (await res.json()) as Record<string, unknown>;

@@ -8,7 +8,7 @@ import * as sysFunc from "./systemFunctions";
 import { Logger } from "./Logger";
 import { Pinger } from "./Pinger";
 import { loadConfig } from "./common";
-import { RESTART_SERVICE_TOKEN_ENV, validateRestartServiceToken } from "./restartService";
+import { RESTART_SERVICE_TOKEN_ENV, CONFIG_TOKEN_ENV, resolveServiceTokenState } from "./restartService";
 import { read_file_json } from "./systemFunctions";
 import { APP_VERSION } from "./version";
 import { collectDefaultMetrics } from "prom-client";
@@ -71,19 +71,32 @@ async function initialize() {
     logger.write_debug(originator + ".initialize", `Starting the IP Pinger Application.`);
 
     // init pinger
-    // The restart endpoint's secret is read and validated exactly once at
-    // startup: an unset RESTART_SERVICE_TOKEN leaves POST /restart-service
-    // disabled (503), and a present-but-weak one fails the boot here
-    // instead of arming a guessable restart button. The injected callback
-    // reuses the existing guarded shutdown (its shutdown_in_progress guard
-    // also dedupes a restart racing a signal): the route never signals or
-    // exits the process itself, and the container's restart policy brings
-    // the process back up.
-    const restart_token = validateRestartServiceToken(process.env[RESTART_SERVICE_TOKEN_ENV]);
+    // Both service tokens are read and validated exactly once at startup
+    // against the shared SERVICE_TOKEN_PATTERN (restartService.ts). The
+    // two-state model is identical for each: unset or empty (compose
+    // delivers empty for an unset variable) and set-but-invalid both
+    // DISABLE the related ability and log a startup warning, while only a
+    // valid token enables it — the service always boots, and a request
+    // header can never grant enablement. The token value is never logged.
+    //
+    // The restart capability reuses the existing guarded shutdown (its
+    // shutdown_in_progress guard also dedupes a restart racing a signal):
+    // the route never signals or exits the process itself, and the
+    // container's restart policy brings the process back up.
+    const raw_restart_token = process.env[RESTART_SERVICE_TOKEN_ENV];
+    const raw_config_token = process.env[CONFIG_TOKEN_ENV];
+    // Each call logs the token's startup state (warn for unset/empty or
+    // set-but-invalid, info for enabled) and returns the validated secret or
+    // undefined; see resolveServiceTokenState for the two-state rule. The
+    // token value is never logged, and a request header can never grant
+    // enablement.
+    const restart_token = resolveServiceTokenState(logger, "restart", raw_restart_token);
+    const config_token = resolveServiceTokenState(logger, "config", raw_config_token);
+
     pinger_dude = new Pinger(configuration, config_str, logger, start_date, undefined, {
         token: restart_token,
         requestRestart: () => void shutdown("API restart request"),
-    });
+    }, config_token);
 
     // Start the HTTP API and await it: a failed bind (e.g. EADDRINUSE)
     // rejects here, propagates out of main(), and the process terminates

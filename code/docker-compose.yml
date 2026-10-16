@@ -16,13 +16,19 @@ services:
       - NET_RAW
     environment:
       - CONFIG_PATH=/app/config/config.yml
+      # Both secrets share one rule (>= 32 characters of A-Z, a-z, 0-9) and a
+      # two-state model: unset/empty/set-but-invalid disables the ability with
+      # a startup warning (the container still boots); only a valid value
+      # enables it. Supply values via a protected local .env file (git-ignored;
+      # see .env.example) or the deployment environment — never committed here
+      # — e.g. generated with `openssl rand -hex 32`.
       # Optional restart secret: enables POST /restart-service (unset or
-      # empty = endpoint disabled, 503). Supply the value via a protected
-      # local .env file (git-ignored; see .env.example) or the deployment
-      # environment —
-      # never committed here — e.g. generated with `openssl rand -hex 32`.
-      # Present but shorter than 32 bytes fails the container at startup.
+      # invalid = endpoint disabled, 503).
       - RESTART_SERVICE_TOKEN=${RESTART_SERVICE_TOKEN:-}
+      # Optional config API secret: enables /read-config, /write-config, and
+      # /reload-config via the x-config-token header (unset or invalid = API
+      # disabled, 503; valid = 401 without a matching header).
+      - IP_PINGER_CONFIG_TOKEN=${IP_PINGER_CONFIG_TOKEN:-}
     volumes:
       - /mnt/ip-pinger-data/config:/app/config:rw
     healthcheck:

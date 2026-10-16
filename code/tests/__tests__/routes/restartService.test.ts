@@ -8,6 +8,7 @@ import net from "net";
 import { createRoutes } from "../../../src/routes/generalRoutes";
 import { NoOpLogger } from "../../../src/common";
 import type { IConfig, IDevice, ILogger, IPinger } from "../../../src/interfaces";
+import { validateRestartServiceToken } from "../../../src/restartService";
 import type { RestartServiceOptions } from "../../../src/restartService";
 
 // The injected callback is a jest mock, so no test in this suite can
@@ -204,6 +205,32 @@ describe("disabled endpoint (fail closed)", () => {
             expect(body).toEqual({ success: false, message: "Restart endpoint is disabled." });
         } finally {
             await app.close();
+        }
+    });
+
+    it("a set-but-weak token resolves to disabled at startup (503, boot continues) instead of failing the boot", async () => {
+        // Before 2.0.0 a present-but-weak RESTART_SERVICE_TOKEN refused to
+        // start. Now the composition root resolves each weak form to undefined
+        // (the shared validity rule — see restartService.test.ts for the
+        // warn), so the route layer sees a disabled endpoint and the service
+        // still boots and serves.
+        const callback = jest.fn();
+        const weakTokens = ["short", "a".repeat(31), "a-1".repeat(16)];
+        for (const weak of weakTokens) {
+            const resolved = validateRestartServiceToken(weak);
+            expect(resolved).toBeUndefined();
+
+            const app = await createApp({ token: resolved, requestRestart: callback });
+            try {
+                const res = await fetch(app.baseUrl + "/restart-service", { method: "POST", headers: authHeader(TEST_TOKEN) });
+                const body = (await res.json()) as Record<string, unknown>;
+
+                expect(res.status).toBe(503);
+                expect(body).toEqual({ success: false, message: "Restart endpoint is disabled." });
+                expect(callback).not.toHaveBeenCalled();
+            } finally {
+                await app.close();
+            }
         }
     });
 });

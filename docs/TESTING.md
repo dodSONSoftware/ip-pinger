@@ -24,15 +24,15 @@ CONFIG_PATH="$PWD/dist/config.yml" npm start
 | Test file | Target |
 | --- | --- |
 | `common/loadConfig.test.ts` | YAML parsing, config validation and loading |
-| `restartService.test.ts` | `RESTART_SERVICE_TOKEN` startup validation (disabled/weak/size-in-bytes) and the constant-time bearer check (format, same-length and different-length mismatches) — isolated from the ping loop and Docker |
+| `restartService.test.ts` | The shared service-token validity rule (`/^[A-Za-z0-9]{32,}$/`; 31/32 boundary, non-alphanumeric and multibyte rejection, never throws) and the startup `resolveServiceTokenState` (valid → info+enable; unset/empty and set-but-invalid → warn+disable; the token value is never logged) plus the constant-time restart bearer check (format, same-length and different-length mismatches) — isolated from the ping loop and Docker |
 | `interfaces/consoleLogger.test.ts` | Console logger |
 | `interfaces/logLevel.test.ts` | Severity levels |
 | `logger/logger.test.ts` | Console/Loki logger behaviors |
 | `pinger/pinger.test.ts` | ICMP lifecycle, scheduler, metrics, reload/state handling |
-| `routes/configRoutes.test.ts` | Config routes, validation, persistence/reload responses |
+| `routes/configRoutes.test.ts` | Config routes, validation, persistence/reload responses, plus `x-config-token` gating: disabled-by-default 503 (byte-identical body across unset/empty/set-but-invalid states, a header can never enable, wrong verb is 405 not 503) and enabled-mode 401 (missing/invalid/same-length-and-different-length) with 200 on a valid header — and no token value in the logs |
 | `routes/pingRoutes.test.ts` | Ping routes and error handling |
 | `routes/apiSurface.test.ts` | Response shapes/headers, `/about`, `/endpoints`, `/metrics`, `/health`, ping parameter edge cases, validation boundaries, write/reload failure and race paths (2026-10-14 API audit) |
-| `routes/restartService.test.ts` | `POST /restart-service`: 401 surface (missing/malformed/wrong credential), disabled 503 fail-closed mode (no token / no injected hook), one-shot 202 + duplicate 409 (concurrent and sequential), shutdown runs exactly once including on a client-aborted response, throwing-handler containment (no unhandled rejection), catalog listing, and no state leakage across independent route instances — the injected callback is a mock, so the suite can never signal or exit the Jest process |
+| `routes/restartService.test.ts` | `POST /restart-service`: 401 surface (missing/malformed/wrong credential), disabled 503 fail-closed mode (no token / no injected hook, and a set-but-weak token that resolves to disabled at startup — the service still boots and the endpoint answers 503), one-shot 202 + duplicate 409 (concurrent and sequential), shutdown runs exactly once including on a client-aborted response, throwing-handler containment (no unhandled rejection), catalog listing, and no state leakage across independent route instances — the injected callback is a mock, so the suite can never signal or exit the Jest process |
 | `swagger/swagger.test.ts` | Swagger setup |
 | `systemFunctions/ensureError.test.ts` | Error normalization |
 | `systemFunctions/fileFunctions.test.ts` | File utilities |

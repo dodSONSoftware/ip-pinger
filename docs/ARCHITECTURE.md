@@ -13,8 +13,8 @@ This document describes the architecture, components, interfaces, and data flows
 | `code/src/index.ts` | Bootstraps configuration, logger and pinger; registers `collectDefaultMetrics()`; owns process signals and terminal errors |
 | `code/src/common.ts` | `CONFIG_PATH`, fixed `API_PORT`, Zod validation, file loading, startup-only setting comparisons |
 | `code/src/Pinger.ts` | ICMP session, cyclic scheduler, state transitions, Prometheus device/application metrics, HTTP server lifecycle |
-| `code/src/routes/generalRoutes.ts` | HTTP route closures, on-demand pings, configuration read/write/reload, health, metrics, and the authenticated restart request |
-| `code/src/restartService.ts` | `RESTART_SERVICE_TOKEN` startup validation and the constant-time bearer check for `POST /restart-service` |
+| `code/src/routes/generalRoutes.ts` | HTTP route closures, on-demand pings, configuration read/write/reload (gated by `IP_PINGER_CONFIG_TOKEN` via the `x-config-token` header), health, metrics, and the authenticated restart request |
+| `code/src/restartService.ts` | The shared service-token validity rule and startup resolution for both secrets, and the constant-time bearer check for `POST /restart-service` |
 | `code/src/Logger.ts` | Level filtering, console/Loki sinks, bounded flush, Loki failure counters |
 | `code/src/systemFunctions.ts` | File persistence and error utilities |
 | `code/src/swagger.ts` | OpenAPI/Swagger UI |
@@ -24,7 +24,7 @@ This document describes the architecture, components, interfaces, and data flows
 
 ## Startup and main loop
 
-1. `code/src/common.ts` requires `CONFIG_PATH` at module import time. `initialize()` loads and validates its YAML file, then validates the optional `RESTART_SERVICE_TOKEN` (unset = restart endpoint disabled; present but shorter than 32 bytes or whitespace-only = failed boot).
+1. `code/src/common.ts` requires `CONFIG_PATH` at module import time. `initialize()` loads and validates its YAML file, then resolves the two optional secrets (`RESTART_SERVICE_TOKEN`, `IP_PINGER_CONFIG_TOKEN`) through the shared two-state rule: a valid value (≥ 32 alphanumeric) enables its ability, while unset/empty/set-but-invalid disables it with a warning — startup never fails on secret state.
 2. Bootstrap console logging is replaced by configured `Logger`; `Pinger` constructs metrics, Express middleware/routes and one `net-ping` IPv4 session. The restart capability (validated secret plus the injected shutdown hook) is wired from `index.ts` through `Pinger` into `createRoutes`.
 3. `await Pinger.start()` binds port **32001**; failure to bind aborts startup.
 4. `main()` repeatedly awaits `Pinger.run()`. `run()` initially waits roughly two seconds, then concurrently probes the configured devices, processes results, and waits until the next scheduled cycle. The wait can be interrupted by configuration updates, shutdown or session failure.
@@ -34,6 +34,7 @@ ICMP session defaults: IPv4, 16-byte packet, one retry, 2000 ms timeout, TTL 128
 
 ## Configuration lifecycle
 
+- The configuration API is gated by `IP_PINGER_CONFIG_TOKEN` and disabled by default: without a valid configured token all three routes answer 503, and with one set each request must carry the token in the `x-config-token` header (compared in constant time) or it is answered 401. The gate runs after verb/method validation (an unregistered verb on a config route is 405, not 503).
 - `POST /write-config`: validate JSON payload using the YAML-compatible schema, serialize to YAML, write through `write_file()`, re-read, and request a live update.
 - `GET /reload-config`: read existing file, validate and request update.
 - `GET /read-config`: inspect the file without applying an update.
@@ -52,9 +53,9 @@ Every endpoint is on port 32001; Swagger is at `/swagger`.
 | GET | `/endpoints` | Endpoint catalog |
 | GET | `/ping` | On-demand probes of all configured devices |
 | GET | `/ping/:target` | On-demand probe of validated IPv4 address |
-| GET | `/read-config` | Read configuration file |
-| POST | `/write-config` | Validate, persist, and apply eligible configuration |
-| GET | `/reload-config` | Reload file from disk |
+| GET | `/read-config` | Read configuration file (gated by `x-config-token`; 401 / 503) |
+| POST | `/write-config` | Validate, persist, and apply eligible configuration (gated by `x-config-token`; 401 / 503) |
+| GET | `/reload-config` | Reload file from disk (gated by `x-config-token`; 401 / 503) |
 | GET | `/metrics` | Prometheus text exposition, including default process metrics |
 | GET | `/health` | 200 if operational, 503 after fatal session failure |
 | POST | `/restart-service` | Bearer-authenticated graceful-restart request; 202 / 401 / 409 / 503 |

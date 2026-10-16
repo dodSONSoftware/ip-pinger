@@ -6,15 +6,16 @@ This document specifies configuration settings, defaults, validation, deployment
 
 `CONFIG_PATH` is **required** and must point to a readable YAML file at startup. `code/src/common.ts` throws during import if it is unset. The HTTP port is the constant `API_PORT = 32001`, not configurable by YAML or environment. `npm run build` copies `code/src/config.yml` to `code/dist/config.yml`, but **does not set `CONFIG_PATH`**.
 
-`RESTART_SERVICE_TOKEN` is an **optional** environment variable read once at startup by `code/src/index.ts` (it is not part of the YAML schema). It configures the bearer secret for `POST /restart-service`:
+Two **optional** secrets are read once at startup by `code/src/index.ts` (neither is part of the YAML schema). They share one validity rule and one two-state model (the sensor-telemetry 5.0.0 "Iron Wolf" token model, adopted in 2.0.0): a secret is **valid** when it is at least 32 characters made up only of `A–Z`, `a–z`, `0–9` (`/^[A-Za-z0-9]{32,}$/`). `openssl rand -hex 32` satisfies it; a base64 value carrying `+`, `/`, or `=` does not. Startup **never fails** on secret state — it is resolved once into either *enabled* (a valid value) or *disabled* (unset, empty, or set-but-invalid) — and a request header can never grant enablement. A set-but-invalid value logs a **warning** naming only the rule, never the value, and leaves the corresponding ability disabled so the service still boots.
 
-- **Unset or empty** — the endpoint is disabled and answers `503` to every request; no shutdown can be scheduled through it.
-- **Set** — the value must be at least 32 bytes and not whitespace-only, or the service fails at startup (fail-fast; a weak secret must never arm a guessable restart button). Generate it with e.g. `openssl rand -hex 32`.
-- The secret is compared against the `Authorization: Bearer <token>` header in constant time (`crypto.timingSafeEqual`, equal-size buffers only), and is never logged — neither in request logs nor in the 401 warning.
+- `RESTART_SERVICE_TOKEN` — the bearer secret for `POST /restart-service`. **Disabled** (unset/empty/invalid): the endpoint answers `503` to every request and no shutdown can be scheduled through it. **Enabled** (valid): the secret is compared against the `Authorization: Bearer <token>` header in constant time (`crypto.timingSafeEqual`, equal-size buffers only); missing or invalid credentials get `401`, duplicates of an accepted request get `409`.
+- `IP_PINGER_CONFIG_TOKEN` — the secret gating the configuration API (`GET /read-config`, `POST /write-config`, `GET /reload-config`). **Disabled** (unset/empty/invalid): all three routes answer `503 {"success":false,"message":"Configuration API is disabled."}` — the endpoints exist but are closed. **Enabled** (valid): each request must carry the secret in the `x-config-token` header (compared in constant time, length checked first) or it is answered `401 {"success":false,"message":"missing or invalid x-config-token"}`. This gates the previously-unauthenticated configuration surface; the read-only endpoints (`/health`, `/about`, `/endpoints`, `/metrics`, the ping/status endpoints, Swagger) remain open by design.
 
-Docker Compose passes the variable through as `RESTART_SERVICE_TOKEN=${RESTART_SERVICE_TOKEN:-}`, so the value belongs in a protected local `.env` file (git-ignored; start from the committed `code/.env.example`) or the deployment environment — never in the committed Compose YAML.
+Neither secret is ever logged — not in request logs and not in the disable/enable or reject warnings. Generate each with e.g. `openssl rand -hex 32`.
 
-Docker Compose sets `CONFIG_PATH=/app/config/config.yml` (and passes through the optional `RESTART_SERVICE_TOKEN`), publishes 32001, and bind-mounts `/mnt/ip-pinger-data/config:/app/config:rw`. The container runs as UID 1000 and needs directory write access to atomically replace the YAML file. Create the host directory and place `config.yml` there before starting; avoid a single-file bind mount because rename-based writes can fail (`EBUSY`). The image grants the Node executable `CAP_NET_RAW`; Compose also adds `NET_RAW` for ICMP.
+Docker Compose passes both variables through (`RESTART_SERVICE_TOKEN=${RESTART_SERVICE_TOKEN:-}` and `IP_PINGER_CONFIG_TOKEN=${IP_PINGER_CONFIG_TOKEN:-}`), so the values belong in a protected local `.env` file (git-ignored; start from the committed `code/.env.example`) or the deployment environment — never in the committed Compose YAML.
+
+Docker Compose sets `CONFIG_PATH=/app/config/config.yml` (and passes through the optional `RESTART_SERVICE_TOKEN` and `IP_PINGER_CONFIG_TOKEN`), publishes 32001, and bind-mounts `/mnt/ip-pinger-data/config:/app/config:rw`. The container runs as UID 1000 and needs directory write access to atomically replace the YAML file. Create the host directory and place `config.yml` there before starting; avoid a single-file bind mount because rename-based writes can fail (`EBUSY`). The image grants the Node executable `CAP_NET_RAW`; Compose also adds `NET_RAW` for ICMP.
 
 ## YAML schema
 
@@ -53,7 +54,7 @@ A device identity is the triple `(ipAddress, source, deviceType)`. Two entries c
 
 ## Logging
 
-The log level filters console and Loki sinks. Loki operates only when both enabled and a URL is configured. Persistent failures are rate-limited in warning output but separately counted by the `pinger_loki_send_failures_total` counter. Full YAML configuration dumps intentionally remain local-console-only. Do not store credentials or sensitive configuration in logging payloads; API has no authentication.
+The log level filters console and Loki sinks. Loki operates only when both enabled and a URL is configured. Persistent failures are rate-limited in warning output but separately counted by the `pinger_loki_send_failures_total` counter. Full YAML configuration dumps intentionally remain local-console-only. Do not store credentials or sensitive configuration in logging payloads; the configuration API is gated by `IP_PINGER_CONFIG_TOKEN` and disabled by default, while the read-only endpoints remain open (see [Known issues](KNOWN_ISSUES.md), KI-001).
 
 ## Local commands
 

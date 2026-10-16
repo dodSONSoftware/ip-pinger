@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Onyx Fox — version 1.17.1.
+**Release:** Iron Hawk — version 2.0.0.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -163,6 +163,29 @@ Configuration can be updated at runtime:
 | `/write-config` | POST | Updates configuration from request body |
 | `/reload-config` | GET | Reloads configuration from disk |
 
+### Configuration API Access
+
+The configuration API is **disabled by default**. It is enabled only when the
+`IP_PINGER_CONFIG_TOKEN` environment variable holds a strong secret (at least
+32 characters made up of `A–Z`, `a–z`, `0–9`, e.g. generated with
+`openssl rand -hex 32`). With a valid token configured, every request to these
+three routes must carry the token in the `x-config-token` header (compared in
+constant time, never logged); a request without a valid header gets
+`401 {"success":false,"message":"missing or invalid x-config-token"}`. With no
+valid token configured, all three routes answer
+`503 {"success":false,"message":"Configuration API is disabled."}` — the
+endpoints exist but are closed, not missing. A request header can never enable
+the API; only a valid configured token does.
+
+The other read-only endpoints (`/health`, `/about`, `/endpoints`, `/metrics`,
+the ping and status endpoints, Swagger) are unaffected and remain open by
+design.
+
+```bash
+curl -i http://localhost:32001/read-config \
+  -H "x-config-token: $IP_PINGER_CONFIG_TOKEN"
+```
+
 Settings split into two groups:
 
 - **Hot-reloadable** (applied immediately): `intervalSecs`, `devices`
@@ -206,9 +229,9 @@ summaries also reach Loki.
 | GET | `/about` | Service information, version, and release codename |
 | GET | `/ping` | Trigger immediate ping of all devices |
 | GET | `/ping/:target` | Ping a specific IPv4 address (400 if the target is not a valid IPv4 address; the reserved `0.0.0.0` and `255.255.255.255` are rejected) |
-| GET | `/read-config` | Read current configuration |
-| POST | `/write-config` | Update and reload configuration |
-| GET | `/reload-config` | Reload configuration from disk |
+| GET | `/read-config` | Read current configuration (gated by `x-config-token`; 401 without a valid header, 503 when disabled) |
+| POST | `/write-config` | Update and reload configuration (gated by `x-config-token`; 401 without a valid header, 503 when disabled) |
+| GET | `/reload-config` | Reload configuration from disk (gated by `x-config-token`; 401 without a valid header, 503 when disabled) |
 | GET | `/swagger` | Interactive API documentation |
 | GET | `/metrics` | Prometheus metrics endpoint |
 | GET | `/health` | Health check; 200 while operational, 503 after a fatal net-ping session failure |
@@ -225,16 +248,19 @@ means *restart requested*, not *service back* — confirm with a subsequent
 `GET /health`.
 
 The endpoint is **disabled by default**: it only accepts restarts when the
-`RESTART_SERVICE_TOKEN` environment variable holds a strong secret (at
-least 32 bytes, e.g. generated with `openssl rand -hex 32`). A present but
-shorter or whitespace-only secret fails the service at startup instead of
-arming a guessable restart button. The secret is compared in constant time
-and never logged; requests without a valid
+`RESTART_SERVICE_TOKEN` environment variable holds a strong secret — at
+least 32 characters made up of `A–Z`, `a–z`, `0–9` (e.g. generated with
+`openssl rand -hex 32`). A set-but-weak secret (too short, or containing any
+other character such as the `+`/`/`/`=` a base64 value carries) does **not**
+fail the boot: it logs a warning, leaves the endpoint disabled, and the
+service boots normally — so a misconfigured token can never take a working
+service down, and it also never arms a guessable restart button. The secret is
+compared in constant time and never logged; requests without a valid
 `Authorization: Bearer <token>` header get `401`, duplicates of an
-already-accepted request get `409`, and other verbs get `405`. In a Docker
-Compose deployment the secret belongs in a protected local `.env` file next
-to the Compose file (start from `code/.env.example`), never in the committed
-YAML.
+already-accepted request get `409`, other verbs get `405`, and the endpoint
+answers `503` while disabled. In a Docker Compose deployment the secret belongs
+in a protected local `.env` file next to the Compose file (start from
+`code/.env.example`), never in the committed YAML.
 
 ```bash
 curl -i -X POST http://localhost:32001/restart-service \

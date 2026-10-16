@@ -8,7 +8,8 @@ import fs from "fs";
 import http from "http";
 import { createRoutes } from "../../../src/routes/generalRoutes";
 import { NoOpLogger } from "../../../src/common";
-import type { IConfig, IDevice, IPinger } from "../../../src/interfaces";
+import { isValidServiceToken } from "../../../src/restartService";
+import type { IConfig, IDevice, ILogger, IPinger } from "../../../src/interfaces";
 
 // The worker-unique path jest.setup.js assigned to CONFIG_PATH: this suite
 // seeds the file and reads it back through the API, so it must never share
@@ -26,6 +27,18 @@ const startupConfig: IConfig = {
     devices: [deviceA, deviceB],
     lokiEnabled: false,
 };
+
+// A valid config-API secret (at least 32 alphanumeric characters — the shared
+// SERVICE_TOKEN_PATTERN rule). The enabled-state instances in this file are
+// constructed with it, and every config request carries it as x-config-token.
+const CONFIG_TOKEN = "configapitoken0123456789abcdef0123";
+const configHeaders = { "x-config-token": CONFIG_TOKEN } as Record<string, string>;
+
+// The EXACT wire bytes of the disabled response. Byte-identity with the
+// set-but-invalid state is asserted across the describe blocks below (both
+// are indistinguishable to the route layer: createRoutes receives undefined
+// for either, so both answer these same bytes).
+const CONFIG_DISABLED_503_BODY = '{"success":false,"message":"Configuration API is disabled."}';
 
 function yamlFor(config: IConfig): string {
     const lines: string[] = [
@@ -74,7 +87,9 @@ beforeAll(async () => {
     // Pinger adds the JSON body parser before registering routes; mirror that
     // so /write-config receives a parsed req.body.
     app.use(express.json());
-    createRoutes(app, startupConfig, yamlFor(startupConfig), fakePinger, new NoOpLogger(), new Date());
+    // The config API is enabled: constructed with a valid token, so every
+    // config request below carries the matching x-config-token header.
+    createRoutes(app, startupConfig, yamlFor(startupConfig), fakePinger, new NoOpLogger(), new Date(), undefined, CONFIG_TOKEN);
     server = app.listen(0);
     await new Promise<void>((resolve) => server.on("listening", () => resolve()));
     const address = server.address() as { port: number };
@@ -93,14 +108,14 @@ beforeEach(() => {
 });
 
 async function get(path: string): Promise<{ status: number; body: Record<string, unknown> }> {
-    const res = await fetch(baseUrl + path);
+    const res = await fetch(baseUrl + path, { headers: configHeaders });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
 async function postConfig(payload: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
     const res = await fetch(baseUrl + "/write-config", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...configHeaders },
         body: JSON.stringify(payload),
     });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
@@ -112,7 +127,7 @@ async function postConfig(payload: Record<string, unknown>): Promise<{ status: n
 async function postRawTo(path: string, body: string): Promise<{ status: number; body: Record<string, unknown> }> {
     const res = await fetch(baseUrl + path, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...configHeaders },
         body,
     });
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
@@ -120,6 +135,40 @@ async function postRawTo(path: string, body: string): Promise<{ status: number; 
 
 function appliedConfig(): IConfig {
     return updateConfig.mock.calls[0][0] as IConfig;
+}
+
+// Builds a standalone config-route stack on an ephemeral port for the token
+// state tests (disabled / set-but-invalid / request-auth). `configToken` is
+// the already-validated secret (undefined = disabled) — exactly what the
+// composition root hands the routes — so the suite controls the state
+// directly without touching process.env.
+interface CfgApp {
+    baseUrl: string;
+    close: () => Promise<void>;
+}
+
+async function createConfigApp(configToken: string | undefined, logger?: ILogger): Promise<CfgApp> {
+    const app = express();
+    app.use(express.json());
+    createRoutes(app, startupConfig, yamlFor(startupConfig), fakePinger, logger ?? new NoOpLogger(), new Date(), undefined, configToken);
+    const server = app.listen(0);
+    await new Promise<void>((resolve) => server.on("listening", () => resolve()));
+    const address = server.address() as { port: number };
+    return {
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        close: () => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+    };
+}
+
+// A spy logger (the full ILogger surface) for asserting what the route layer
+// logs; the no-token-in-logs invariant serializes its calls.
+function makeSpyLogger(): { logger: ILogger; write_info: jest.Mock; write_warn: jest.Mock; write_error: jest.Mock } {
+    const write_info = jest.fn();
+    const write_warn = jest.fn();
+    const write_error = jest.fn();
+    const write_debug = jest.fn();
+    const logger: ILogger = { write_info, write_warn, write_error, write_debug };
+    return { logger, write_info, write_warn, write_error };
 }
 
 describe("/read-config (read-only)", () => {
@@ -461,12 +510,12 @@ describe("multiple route instances (state isolation)", () => {
 
         const appA = express();
         appA.use(express.json());
-        createRoutes(appA, configA, yamlFor(configA), pingerA, new NoOpLogger(), bootA);
+        createRoutes(appA, configA, yamlFor(configA), pingerA, new NoOpLogger(), bootA, undefined, CONFIG_TOKEN);
 
         // Creating instance B must not rebind the routes registered for A
         const appB = express();
         appB.use(express.json());
-        createRoutes(appB, configB, yamlFor(configB), pingerB, new NoOpLogger(), bootB);
+        createRoutes(appB, configB, yamlFor(configB), pingerB, new NoOpLogger(), bootB, undefined, CONFIG_TOKEN);
 
         serverA = appA.listen(0);
         serverB = appB.listen(0);
@@ -500,7 +549,7 @@ describe("multiple route instances (state isolation)", () => {
     async function postConfigJson(base: string, payload: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
         const res = await fetch(base + "/write-config", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...configHeaders },
             body: JSON.stringify(payload),
         });
         return { status: res.status, body: (await res.json()) as Record<string, unknown> };
@@ -629,5 +678,158 @@ describe("/write-config (concurrent writes)", () => {
         expect(onDisk.status).toBe(200);
         expect(onDisk.body.intervalSecs).toBe(lastApplied.intervalSecs);
         expect(onDisk.body.devices as IDevice[]).toHaveLength(lastApplied.devices.length);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Token-state surface: the config API is disabled without a valid startup
+// token (exact 503 bytes on every route, a header can never enable it) and
+// enabled with one (x-config-token required, constant-time compared). The
+// startup warn for each state lives in the composition root and is pinned by
+// restartService.test.ts (resolveServiceTokenState); here the route layer sees
+// only the resulting token (undefined = disabled), which is what it enforces.
+// ---------------------------------------------------------------------------
+
+describe("config API disabled (no valid token — 503, never enabled by a header)", () => {
+    let app: CfgApp;
+    // A strong-looking, well-formed value: enablement comes from the startup
+    // token, never from the request, so it must still be rejected here.
+    const WELL_FORMED = "Aa0b1C2d3E4f5G6h7I8j9K0l1M2n3O4pQr";
+
+    beforeAll(async () => {
+        app = await createConfigApp(undefined);
+    });
+
+    afterAll(async () => {
+        await app.close();
+    });
+
+    it("answers the exact disabled 503 bytes on all three routes", async () => {
+        const read = await fetch(app.baseUrl + "/read-config");
+        expect(read.status).toBe(503);
+        expect(await read.text()).toBe(CONFIG_DISABLED_503_BODY);
+
+        const write = await fetch(app.baseUrl + "/write-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(startupConfig),
+        });
+        expect(write.status).toBe(503);
+        expect(await write.text()).toBe(CONFIG_DISABLED_503_BODY);
+
+        const reload = await fetch(app.baseUrl + "/reload-config");
+        expect(reload.status).toBe(503);
+        expect(await reload.text()).toBe(CONFIG_DISABLED_503_BODY);
+    });
+
+    it("cannot be enabled by a well-formed x-config-token header", async () => {
+        const res = await fetch(app.baseUrl + "/read-config", { headers: { "x-config-token": WELL_FORMED } });
+        expect(res.status).toBe(503);
+        expect(await res.text()).toBe(CONFIG_DISABLED_503_BODY);
+    });
+
+    it("checks the method before disablement: POST /read-config is 405, not 503", async () => {
+        const res = await fetch(app.baseUrl + "/read-config", { method: "POST" });
+        expect(res.status).toBe(405);
+        expect(res.headers.get("allow")).toBe("GET, HEAD");
+        await res.text();
+    });
+
+    it("boots and runs normally while disabled: /health stays 200", async () => {
+        const res = await fetch(app.baseUrl + "/health");
+        expect(res.status).toBe(200);
+        expect((await res.json() as { status: string }).status).toBe("healthy");
+    });
+
+    it("still lists the three config routes in /endpoints (the feature is off, the routes exist)", async () => {
+        const res = await fetch(app.baseUrl + "/endpoints");
+        const body = (await res.json()) as { endpoints: Array<{ route: string }> };
+        for (const route of ["/read-config", "/write-config", "/reload-config"]) {
+            expect(body.endpoints.some((entry) => entry.route === route)).toBe(true);
+        }
+    });
+});
+
+describe("set-but-invalid config token disables the API end-to-end (validation -> routes)", () => {
+    let app: CfgApp;
+    // One character under the 32 minimum: invalid by length.
+    const INVALID_RAW = "a".repeat(31);
+
+    beforeAll(async () => {
+        // The composition root hands the routes only the validated token: an
+        // invalid raw token becomes undefined (isValidServiceToken is false),
+        // exactly like an unset one. The route layer cannot tell them apart —
+        // both are the same disabled 503 state.
+        const configToken = isValidServiceToken(INVALID_RAW) ? INVALID_RAW : undefined;
+        expect(configToken).toBeUndefined();
+        app = await createConfigApp(configToken);
+    });
+
+    afterAll(async () => {
+        await app.close();
+    });
+
+    it("answers the exact disabled 503 bytes (same wire state as true-unset)", async () => {
+        const res = await fetch(app.baseUrl + "/read-config");
+        expect(res.status).toBe(503);
+        expect(await res.text()).toBe(CONFIG_DISABLED_503_BODY);
+    });
+});
+
+describe("config API request authentication (enabled — x-config-token required)", () => {
+    let app: CfgApp;
+    let write_warn: jest.Mock;
+    // A distinctive wrong value (hyphens, different length) for the 401 path.
+    const WRONG = "wrong-config-token-000000000000000000";
+
+    beforeAll(async () => {
+        // A valid on-disk config so the 200 read has something to serve.
+        fs.writeFileSync(CONFIG_FILE, yamlFor(startupConfig));
+        const spy = makeSpyLogger();
+        write_warn = spy.write_warn;
+        app = await createConfigApp(CONFIG_TOKEN, spy.logger);
+    });
+
+    afterAll(async () => {
+        await app.close();
+    });
+
+    it("answers 401 for a missing x-config-token on every config route", async () => {
+        const read = await fetch(app.baseUrl + "/read-config");
+        const write = await fetch(app.baseUrl + "/write-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(startupConfig),
+        });
+        const reload = await fetch(app.baseUrl + "/reload-config");
+        const bodies = [await read.json(), await write.json(), await reload.json()] as Array<Record<string, unknown>>;
+        expect([read.status, write.status, reload.status]).toEqual([401, 401, 401]);
+        for (const body of bodies) {
+            expect(body).toEqual({ success: false, message: "missing or invalid x-config-token" });
+        }
+    });
+
+    it("answers 401 for a wrong x-config-token (same length or not)", async () => {
+        const wrongLen = await fetch(app.baseUrl + "/read-config", { headers: { "x-config-token": WRONG } });
+        const sameLenWrong = "x".repeat(CONFIG_TOKEN.length); // same length, wrong content
+        const sameLen = await fetch(app.baseUrl + "/read-config", { headers: { "x-config-token": sameLenWrong } });
+        expect(wrongLen.status).toBe(401);
+        expect(sameLen.status).toBe(401);
+        expect((await wrongLen.json()) as Record<string, unknown>).toEqual({ success: false, message: "missing or invalid x-config-token" });
+        await sameLen.text();
+    });
+
+    it("answers 200 for the correct x-config-token", async () => {
+        const res = await fetch(app.baseUrl + "/read-config", { headers: configHeaders });
+        expect(res.status).toBe(200);
+        await res.text();
+    });
+
+    it("never logs the configured token or the rejected header value (no-token-in-logs)", () => {
+        const serialized = JSON.stringify(write_warn.mock.calls);
+        expect(serialized).not.toContain(CONFIG_TOKEN);
+        expect(serialized).not.toContain(WRONG);
+        // The rejection is still audited (a warn fired), just without the secret.
+        expect(write_warn).toHaveBeenCalled();
     });
 });

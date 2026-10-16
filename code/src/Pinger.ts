@@ -76,6 +76,12 @@ export class Pinger implements dli.IPinger {
     // it — the route layer owns the HTTP side, index.ts owns the process
     // side; nothing here touches the process or Docker.
     private readonly restart_service?: RestartServiceOptions;
+    // The validated config-API secret (undefined = the config API is
+    // disabled, 503). Validated once at startup by index.ts; carried here
+    // only so it reaches the route layer, which owns the x-config-token
+    // check. Like the restart capability this is not a Pinger concern —
+    // nothing in this class touches the token beyond passing it along.
+    private readonly config_token?: string;
     // ----
     private readonly ip_pinger: Session;
     private readonly express: express.Application;
@@ -140,13 +146,14 @@ export class Pinger implements dli.IPinger {
     // ********
     // ******** ctor
 
-    constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger, startDate: Date, port: number = API_PORT, restart?: RestartServiceOptions) {
+    constructor(config: dli.IConfig, config_str: string, logger: dli.ILogger, startDate: Date, port: number = API_PORT, restart?: RestartServiceOptions, configToken?: string) {
         // save parameters
         this.configuration = config;
         this.config_str = config_str;
         this.logger = logger;
         this.api_port = port;
         this.restart_service = restart;
+        this.config_token = configToken;
 
         // ******** CREATE PROMETHEUS GAUGES
 
@@ -264,7 +271,7 @@ export class Pinger implements dli.IPinger {
         // handler only sees errors from layers above it — registering the
         // swagger routes after it would route their failures to Express's
         // default handler instead of the application's.
-        createRoutes(this.express, this.configuration, this.config_str, this, this.logger, startDate, this.restart_service);
+        createRoutes(this.express, this.configuration, this.config_str, this, this.logger, startDate, this.restart_service, this.config_token);
 
         // ******** CREATE THE PINGER
 
