@@ -2,7 +2,7 @@
 
 Series 4 - IP Pinger Services
 
-**Release:** Onyx Fox — version 1.17.0.
+**Release:** Onyx Fox — version 1.17.1.
 
 [![Dodson Labs](https://img.shields.io/badge/dodson%20labs-2026-purple?labelColor=gray)](https://github.com/dodSONSoftware)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9+-blue.svg)](https://www.typescriptlang.org/)
@@ -231,7 +231,10 @@ shorter or whitespace-only secret fails the service at startup instead of
 arming a guessable restart button. The secret is compared in constant time
 and never logged; requests without a valid
 `Authorization: Bearer <token>` header get `401`, duplicates of an
-already-accepted request get `409`, and other verbs get `405`.
+already-accepted request get `409`, and other verbs get `405`. In a Docker
+Compose deployment the secret belongs in a protected local `.env` file next
+to the Compose file (start from `code/.env.example`), never in the committed
+YAML.
 
 ```bash
 curl -i -X POST http://localhost:32001/restart-service \

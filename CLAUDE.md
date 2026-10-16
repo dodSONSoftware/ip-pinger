@@ -22,6 +22,7 @@ Run commands from `code/` unless stated otherwise. Set `CONFIG_PATH` explicitly 
 
 ## Documentation — authoritative references
 
+- [Structure](docs/STRUCTURE.md) — repository layout, directory purposes, and where new material goes
 - [Architecture](docs/ARCHITECTURE.md) — boot sequence, modules, API, metrics, failure and shutdown flow
 - [Configuration](docs/CONFIGURATION.md) — YAML schema, environment, container mount, hot reload
 - [Engineering decisions](docs/DECISIONS.md) — decisions and tradeoffs

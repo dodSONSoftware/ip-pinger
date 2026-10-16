@@ -12,7 +12,7 @@ This document specifies configuration settings, defaults, validation, deployment
 - **Set** — the value must be at least 32 bytes and not whitespace-only, or the service fails at startup (fail-fast; a weak secret must never arm a guessable restart button). Generate it with e.g. `openssl rand -hex 32`.
 - The secret is compared against the `Authorization: Bearer <token>` header in constant time (`crypto.timingSafeEqual`, equal-size buffers only), and is never logged — neither in request logs nor in the 401 warning.
 
-Docker Compose passes the variable through as `RESTART_SERVICE_TOKEN=${RESTART_SERVICE_TOKEN:-}`, so the value belongs in a protected local `.env` file (git-ignored) or the deployment environment — never in the committed Compose YAML.
+Docker Compose passes the variable through as `RESTART_SERVICE_TOKEN=${RESTART_SERVICE_TOKEN:-}`, so the value belongs in a protected local `.env` file (git-ignored; start from the committed `code/.env.example`) or the deployment environment — never in the committed Compose YAML.
 
 Docker Compose sets `CONFIG_PATH=/app/config/config.yml` (and passes through the optional `RESTART_SERVICE_TOKEN`), publishes 32001, and bind-mounts `/mnt/ip-pinger-data/config:/app/config:rw`. The container runs as UID 1000 and needs directory write access to atomically replace the YAML file. Create the host directory and place `config.yml` there before starting; avoid a single-file bind mount because rename-based writes can fail (`EBUSY`). The image grants the Node executable `CAP_NET_RAW`; Compose also adds `NET_RAW` for ICMP.
 

@@ -4,7 +4,7 @@ This document describes the architecture, components, interfaces, and data flows
 
 ## Purpose and stack
 
-`code/` contains a Node.js 22 / TypeScript 5 service that probes configured IPv4 devices via `net-ping`, publishes Prometheus metrics, provides an Express 4 HTTP API, and optionally forwards Winston logs to Loki. The process is single-instance; device probing is concurrent within each cycle. File paths in this document are relative to the repository root.
+`code/` contains a Node.js 22 / TypeScript 5 service that probes configured IPv4 devices via `net-ping`, publishes Prometheus metrics, provides an Express 4 HTTP API, and optionally forwards Winston logs to Loki. The process is single-instance; device probing is concurrent within each cycle. File paths in this document are relative to the repository root. The full repository layout — including generated directories and the rules for where new material belongs — is documented in [Directory Structure](STRUCTURE.md).
 
 ## Component map
 
